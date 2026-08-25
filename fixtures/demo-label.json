@@ -1,0 +1,21 @@
+{
+  "label": "Demo Label",
+  "revealed": 3,
+  "releases": [
+    {"id": "1001", "name": "First Light EP", "artists": ["Test Artist"],
+     "catalog_number": "DEMO001", "publish_date": "2026-08-01", "track_count": 4,
+     "url": "https://example.invalid/release/1001"},
+    {"id": "1002", "name": "Second Wind", "artists": ["Another Act"],
+     "catalog_number": "DEMO002", "publish_date": "2026-08-08", "track_count": 2,
+     "url": "https://example.invalid/release/1002"},
+    {"id": "1003", "name": "Third Rail", "artists": ["Test Artist", "Guest"],
+     "catalog_number": "DEMO003", "publish_date": "2026-08-15", "track_count": 6,
+     "url": "https://example.invalid/release/1003"},
+    {"id": "1004", "name": "Fourth Estate", "artists": ["New Signing"],
+     "catalog_number": "DEMO004", "publish_date": "2026-08-22", "track_count": 3,
+     "url": "https://example.invalid/release/1004"},
+    {"id": "1005", "name": "Fifth Column", "artists": ["Another Act"],
+     "catalog_number": "DEMO005", "publish_date": "2026-08-24", "track_count": 8,
+     "url": "https://example.invalid/release/1005"}
+  ]
+}

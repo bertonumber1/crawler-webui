@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+
+# Local runtime state
+crawler.db
+*.db-wal
+*.db-shm
+server.log
+*.log
+.env
