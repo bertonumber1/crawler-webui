@@ -71,7 +71,7 @@ def write(urls: list[str], name: str, package: str = "", subfolder: str = "",
         # decides whether JD should begin downloading immediately.
         "autoConfirm": "TRUE",
         "autoStart": "TRUE" if auto_start else "FALSE",
-        "overwritePackagizerEnabled": false,
+        "overwritePackagizerEnabled": False,
     }
 
     tmp = path + ".tmp"
