@@ -435,7 +435,9 @@ $('#resolve').onclick=async()=>{
   finally{ b.disabled=false; b.textContent=was; }
 };
 
-$('#rules').onclick=async()=>{ const d=await (await fetch('/api/jd/rules')).json(); alert('JDownloader LinkCrawler rule types:\\n\\n'+d.types.join('\\n')+'\\n\\n'+d.note); };\nnew EventSource('/events').onmessage=e=>{ const m=JSON.parse(e.data);
+$('#rules').onclick=async()=>{ const d=await (await fetch('/api/jd/rules')).json(); alert('JDownloader LinkCrawler rule types:\\n\\n'+d.types.join('\\n')+'\\n\\n'+d.note); };
+
+new EventSource('/events').onmessage=e=>{ const m=JSON.parse(e.data);
   if(m.kind!=='hello') log('· '+m.kind+' '+JSON.stringify(m.payload)); };
 async function loadSettings(){
   const d=await (await fetch('/api/settings')).json();
