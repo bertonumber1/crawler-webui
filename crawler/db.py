@@ -12,7 +12,7 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DB_PATH = os.path.join(os.path.dirname(HERE), "crawler.db")
+DB_PATH = os.environ.get("CW_DB_PATH", os.path.join(os.path.dirname(HERE), "crawler.db"))
 _lock = threading.Lock()
 
 NEW, QUEUED, CLAIMED, DOWNLOADING = "new", "queued", "claimed", "downloading"
@@ -22,12 +22,12 @@ SKIPPED_OWNED, FAILED, QUARANTINED, CANCELLED = "skipped_owned", "failed", "quar
 TRANSITIONS = {
     NEW:         {QUEUED, SKIPPED_OWNED, CANCELLED},
     QUEUED:      {CLAIMED, CANCELLED, FAILED},
-    CLAIMED:     {DOWNLOADING, QUEUED, FAILED, CANCELLED},   # back to QUEUED = released claim
+    CLAIMED:     {DOWNLOADING, QUEUED, FAILED, CANCELLED},
     DOWNLOADING: {VERIFIED, FAILED, QUARANTINED},
     VERIFIED:    {FILED, FAILED},
     FILED:       set(),
-    SKIPPED_OWNED: {QUEUED},        # manual override: grab it anyway
-    FAILED:      {QUEUED},          # retry
+    SKIPPED_OWNED: {QUEUED},
+    FAILED:      {QUEUED},
     QUARANTINED: {QUEUED},
     CANCELLED:   {QUEUED},
 }
@@ -53,6 +53,9 @@ def db():
 
 
 def init():
+    parent = os.path.dirname(os.path.abspath(DB_PATH))
+    if parent:
+        os.makedirs(parent, exist_ok=True)
     with db() as c:
         c.executescript("""
         CREATE TABLE IF NOT EXISTS watches (
@@ -143,8 +146,6 @@ def mark_seen(store, release_id, watch_id=None, reason=""):
 
 
 def baseline(releases, watch_id, reason="baseline (predates watch)") -> int:
-    """Mark everything currently listed as seen so adding a watch does not
-    fire a notification per back-catalogue release."""
     n = 0
     with db() as c:
         for r in releases:
@@ -202,7 +203,6 @@ def transition(qid, to_state, actor="system", note="", claimed_by=None, local_pa
 
 
 def claim(qid, worker) -> bool:
-    """Atomic claim: only succeeds if the row is still QUEUED."""
     with db() as c:
         cur = c.execute(
             "UPDATE queue SET state=?, state_since=?, claimed_by=? WHERE id=? AND state=?",
