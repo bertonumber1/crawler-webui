@@ -1,8 +1,8 @@
 """Hand selected links to JDownloader via its folderwatch extension.
 
 folderwatch is a documented JD feature: it polls a directory and picks up
-.crawljob files, which are plain key=value text. Nothing clever here — it is
-just the tidiest way to get a link from another process into JD.
+.crawljob files, which are plain key=value text or JSON. Nothing clever here
+— it is just the tidiest way to get a link from another process into JD.
 
 Only links you explicitly select reach this module; nothing auto-submits.
 """
@@ -40,12 +40,15 @@ def write(urls: list[str], name: str, package: str = "", subfolder: str = "",
           auto_start: bool = False) -> str:
     """Drop one .crawljob into the folderwatch directory.
 
-    Written as a JSON array. folderwatch accepts both that and key=value, but
-    key=value has no way to express a list of jobs and quietly mangles a value
-    containing a newline -- which is exactly what a multi-link "text" field is.
+    JDownloader treats ``autoConfirm`` and ``autoStart`` as separate controls.
+    autoConfirm moves successfully crawled links from LinkGrabber into the
+    Download List; autoStart controls whether those confirmed downloads begin.
+    We therefore always auto-confirm crawler jobs and leave auto-start under
+    the caller's control. This makes the default behavior "visible in JD and
+    waiting", rather than "processed into LinkGrabber but seemingly missing".
 
-    autoStart defaults off: the job lands in JD and waits, so a bad selection
-    is a line to delete rather than a download already running.
+    JSON is used because one crawljob can contain multiple URLs and because JD
+    officially supports JSON crawljobs for this purpose.
     """
     ok, detail = available()
     if not ok:
@@ -64,15 +67,18 @@ def write(urls: list[str], name: str, package: str = "", subfolder: str = "",
         "packageName": pkg,
         "downloadFolder": subfolder or os.path.join(download_root(), pkg),
         "enabled": "TRUE",
+        # Always confirm into JD's Download List. autoStart independently
+        # decides whether JD should begin downloading immediately.
+        "autoConfirm": "TRUE",
         "autoStart": "TRUE" if auto_start else "FALSE",
-        "autoConfirm": "TRUE" if auto_start else "FALSE",
-        "overwritePackagizerEnabled": "FALSE",
+        "overwritePackagizerEnabled": false,
     }
 
     tmp = path + ".tmp"
-    with open(tmp, "w") as f:
+    with open(tmp, "w", encoding="utf-8") as f:
         json.dump([job], f, indent=1)
+        f.write("\n")
     # Rename into place so folderwatch never reads a half-written file; its
-    # poll is on a 10s timer and does not care that the file appeared whole.
+    # poll is on a timer and does not care that the file appeared whole.
     os.replace(tmp, path)
     return path
