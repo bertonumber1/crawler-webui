@@ -1,0 +1,6 @@
+# The main docker-compose.yml already uses Gluetun's network namespace.
+# Keep this file for compatibility with older deployment commands.
+services:
+  crawler-webui:
+    network_mode: "container:gluetun"
+    ports: []

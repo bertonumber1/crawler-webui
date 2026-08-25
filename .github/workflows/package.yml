@@ -1,0 +1,19 @@
+name: package
+
+on:
+  push:
+    branches: [main]
+  workflow_dispatch:
+
+jobs:
+  package:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Create source archive
+        run: git archive --format=zip --output=crawler-webui.zip HEAD
+      - uses: actions/upload-artifact@v4
+        with:
+          name: crawler-webui
+          path: crawler-webui.zip
+          if-no-files-found: error

@@ -1,0 +1,167 @@
+{
+  "$schema": "http://json-schema.org/draft-07/schema#",
+  "title": "Jdownloader2 Crawler Rule definition (multi-rule file)",
+  "type": "array",
+  "items": {
+    "type": "object",
+    "additionalProperties": false,
+    "required": [
+      "enabled",
+      "name",
+      "rule",
+      "pattern"
+    ],
+    "properties": {
+      "enabled": {
+        "type": "boolean"
+      },
+      "cookies": {
+        "type": [
+          "array",
+          "null"
+        ],
+        "items": {
+          "type": "array",
+          "items": [
+            {
+              "type": "string"
+            },
+            {
+              "type": "string"
+            }
+          ]
+        }
+      },
+      "updateCookies": {
+        "type": [
+          "boolean",
+          "null"
+        ]
+      },
+      "logging": {
+        "type": "boolean"
+      },
+      "maxDecryptDepth": {
+        "type": "integer"
+      },
+      "id": {
+        "type": "integer"
+      },
+      "name": {
+        "type": "string"
+      },
+      "pattern": {
+        "type": "string"
+      },
+      "rule": {
+        "enum": [
+          "DEEPDECRYPT",
+          "REWRITE",
+          "DIRECTHTTP",
+          "FOLLOWREDIRECT",
+          "SUBMITFORM"
+        ]
+      },
+      "packageNamePattern": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "passwordPattern": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "formPattern": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "deepPattern": {
+        "type": [
+          "string",
+          "null"
+        ]
+      },
+      "rewriteReplaceWith": {
+        "type": [
+          "string",
+          "null"
+        ]
+      }
+    },
+    "allOf": [
+      {
+        "if": {
+          "properties": {
+            "rule": {
+              "not": {
+                "const": "DEEPDECRYPT"
+              }
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "deepPattern": {
+              "type": "null"
+            },
+            "packageNamePattern": {
+              "type": "null"
+            },
+            "passwordPattern": {
+              "type": "null"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "rule": {
+              "not": {
+                "const": "REWRITE"
+              }
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "rewriteReplaceWith": {
+              "type": "null"
+            }
+          }
+        }
+      },
+      {
+        "if": {
+          "properties": {
+            "rule": {
+              "not": {
+                "enum": [
+                  "DIRECTHTTP",
+                  "DEEPDECRYPT",
+                  "SUBMITFORM",
+                  "FOLLOWREDIRECT"
+                ]
+              }
+            }
+          }
+        },
+        "then": {
+          "properties": {
+            "updateCookies": {
+              "type": "null"
+            },
+            "cookies": {
+              "type": "null"
+            }
+          }
+        }
+      }
+    ]
+  }
+}

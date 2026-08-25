@@ -1,0 +1,37 @@
+services:
+  crawler-webui:
+    build:
+      context: .
+      dockerfile: Dockerfile
+    container_name: crawler-webui
+    restart: unless-stopped
+    network_mode: "container:gluetun"
+
+    environment:
+      CW_DB_PATH: /data/crawler.db
+      CW_FOLDERWATCH: /jdownloader-folderwatch
+      CW_DOWNLOAD_ROOT: ${CW_DOWNLOAD_ROOT:-/output/_CRAWLER}
+      CW_JD_RULES_PATH: /data/custom.linkcrawlerrules.json
+
+      FLARESOLVERR_ENABLED: ${FLARESOLVERR_ENABLED:-1}
+      FLARESOLVERR_URL: ${FLARESOLVERR_URL:-http://127.0.0.1:8191/v1}
+      FLARESOLVERR_TIMEOUT: ${FLARESOLVERR_TIMEOUT:-120}
+      FLARESOLVERR_ON: ${FLARESOLVERR_ON:-403,429,503}
+
+    volumes:
+      - ${CRAWLER_DATA_DIR:-./data}:/data
+      - ${CRAWLER_LOG_DIR:-./logs}:/logs
+      - ${JDOWNLOADER_FOLDERWATCH:-/home/media/docker/torrentvpn-app/jdownloader/config/folderwatch}:/jdownloader-folderwatch
+
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "python",
+          "-c",
+          "import urllib.request; urllib.request.urlopen('http://127.0.0.1:8096/api/jd', timeout=4)"
+        ]
+      interval: 30s
+      timeout: 5s
+      start_period: 20s
+      retries: 3
