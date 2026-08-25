@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from crawler import db, crawljob, fetch, links as linkmod
+from crawler import db, crawljob, fetch, links as linkmod, resolve as resolvemod
 from crawler.providers import base, web, dryrun   # noqa: F401  (registers them)
 
 app = FastAPI(title="crawler-webui")
@@ -40,6 +40,16 @@ class JobIn(BaseModel):
     urls: list[str]
     name: str = "crawler-webui"
     subfolder: str = ""
+    auto_start: bool = False
+
+
+class ResolveIn(BaseModel):
+    url: str
+    provider: str = "web"
+    limit: int = 40
+    send: bool = False          # write the resolved links straight to JD
+    auto_start: bool = False
+    per_release: bool = True    # one JD package per release, not one big pile
 
 
 @app.get("/api/providers")
@@ -166,6 +176,50 @@ def jd_rules_save(inp: JDRulesIn):
     emit("jd_rules_saved",{"path":saved,"count":len(inp.rules)})
     return {"ok":True,"path":saved,"count":len(inp.rules)}
 
+@app.post("/api/resolve")
+def resolve_links(inp: ResolveIn):
+    """Crawl a page, then follow its release pages to the actual file hosts.
+
+    A tag or genre listing carries no downloadable links -- only links to
+    release pages -- so sending it to JD queues nothing. This does the second
+    hop and returns what JD can really take.
+    """
+    try:
+        p = base.get(inp.provider)
+        items = p.poll(inp.url)
+    except Exception as e:
+        raise HTTPException(400, f"{type(e).__name__}: {e}")
+
+    def progress(i, total, title):
+        emit("resolve_progress", {"done": i, "total": total, "title": title})
+
+    try:
+        res = resolvemod.resolve(items, inp.url, limit=inp.limit, on_progress=progress)
+    except Exception as e:
+        raise HTTPException(400, f"{type(e).__name__}: {e}")
+
+    res["url"] = inp.url
+    res["count"] = len(res["links"])
+    emit("resolve", {"url": inp.url, "count": res["count"],
+                     "followed": res.get("followed", 0)})
+
+    if inp.send and res["links"]:
+        jobs = []
+        if inp.per_release and res.get("releases"):
+            for r in res["releases"]:
+                if not r["links"]:
+                    continue
+                jobs.append(crawljob.write([l["url"] for l in r["links"]],
+                                           r["title"] or inp.url,
+                                           auto_start=inp.auto_start))
+        else:
+            jobs.append(crawljob.write([l["url"] for l in res["links"]],
+                                       inp.url, auto_start=inp.auto_start))
+        res["queued"] = jobs
+        emit("crawljob", {"count": len(res["links"]), "jobs": len(jobs)})
+    return res
+
+
 @app.get("/api/jd")
 def jd_status():
     ok, detail = crawljob.available()
@@ -176,12 +230,14 @@ def jd_status():
 def make_job(inp: JobIn):
     """Write the links you selected into JD's folderwatch folder."""
     try:
-        path = crawljob.write(inp.urls, inp.name, subfolder=inp.subfolder)
+        path = crawljob.write(inp.urls, inp.name, subfolder=inp.subfolder,
+                              auto_start=inp.auto_start)
     except Exception as e:
         raise HTTPException(400, str(e))
     emit("crawljob", {"path": path, "count": len(inp.urls)})
     return {"ok": True, "path": path, "count": len(inp.urls),
-            "note": "queued in JDownloader with autoStart FALSE — press go in JD"}
+            "note": ("queued in JDownloader and started" if inp.auto_start else
+                     "queued in JDownloader with autoStart FALSE — press go in JD")}
 
 
 @app.get("/events")
@@ -264,7 +320,10 @@ button.go{background:#1d4e89;border-color:#2f6fbd;color:#fff}
       <button id=test>Test</button>
     </div>
     <div class=bar>
+      <button class=go id=resolve>Resolve &amp; send to JD</button>
       <button id=send>Send selected links to JDownloader</button><button id=rules>JD Rules</button>
+      <label style="align-self:center;color:#8b95a3;font-size:12px">
+        <input type=checkbox id=autostart> start in JD</label>
       <span id=selcount style="align-self:center;color:#8b95a3;font-size:12px"></span>
     </div>
     <div id=out class=empty>Paste a URL and press Crawl.</div>
@@ -336,7 +395,8 @@ $('#addbtn').onclick=async()=>{
 $('#send').onclick=async()=>{
   const urls=selected(); if(!urls.length){ log('nothing selected'); return; }
   const r=await fetch('/api/crawljob',{method:'POST',headers:{'Content-Type':'application/json'},
-    body:JSON.stringify({urls,name:$('#url').value.trim()||'crawler-webui'})});
+    body:JSON.stringify({urls,name:$('#url').value.trim()||'crawler-webui',
+                         auto_start:$('#autostart').checked})});
   const d=await r.json();
   log(r.ok?`wrote ${d.count} link(s) → ${d.path.split('/').pop()} (autoStart off)`
           :`crawljob failed: ${d.detail}`);
@@ -355,6 +415,25 @@ async function watches(){
     const d=await (await fetch('/api/watches/'+b.dataset.t+'/test',{method:'POST'})).json();
     log(d.checks.map(c=>`${c.ok?'PASS':'FAIL'} ${c.name} — ${c.detail}`).join('\n')); });
 }
+
+// A listing page carries links to release pages, not to file hosts. Resolve
+// does the second hop before anything is handed to JD, so pasting a tag or
+// genre URL queues the actual downloads rather than nineteen web pages.
+$('#resolve').onclick=async()=>{
+  const u=$('#url').value.trim(); if(!u) return;
+  const b=$('#resolve'), was=b.textContent; b.disabled=true; b.textContent='Resolving…';
+  log('resolving '+u+' — following release pages, this honours the site crawl-delay');
+  try{
+    const r=await fetch('/api/resolve',{method:'POST',headers:{'Content-Type':'application/json'},
+      body:JSON.stringify({url:u,send:true,auto_start:$('#autostart').checked,limit:40})});
+    const d=await r.json();
+    if(!r.ok){ log('resolve failed: '+(d.detail||r.status)); return; }
+    log(d.hopped ? `followed ${d.followed} release page(s) → ${d.count} link(s), ${(d.queued||[]).length} package(s) queued`
+                 : `${d.count} link(s) already on the page → ${(d.queued||[]).length} package(s) queued`);
+    if(d.errors) log(d.errors+' release page(s) failed — see the list');
+  }catch(e){ log('resolve failed: '+e); }
+  finally{ b.disabled=false; b.textContent=was; }
+};
 
 $('#rules').onclick=async()=>{ const d=await (await fetch('/api/jd/rules')).json(); alert('JDownloader LinkCrawler rule types:\\n\\n'+d.types.join('\\n')+'\\n\\n'+d.note); };\nnew EventSource('/events').onmessage=e=>{ const m=JSON.parse(e.data);
   if(m.kind!=='hello') log('· '+m.kind+' '+JSON.stringify(m.payload)); };

@@ -159,12 +159,23 @@ class Web:
                 return title
 
         # Common Drupal title field.
-        for selector in (".field--name-title", ".node__title", ".page-title"):
+        for selector in (".field--name-title", ".node__title", ".page-title",
+                         ".views-field-title", ".views-field-title a"):
             x = node.select_one(selector)
             if x:
                 title = _clean_title(x.get_text(" ", strip=True))
                 if title:
                     return title
+
+        # A listing row often has no heading at all -- the release title is
+        # simply the text of the link to it. Without this every row on a tag
+        # page inherits the page title, and JD receives twenty packages that
+        # are all called the same thing.
+        a = node.find("a", href=True)
+        if a:
+            title = _clean_title(a.get_text(" ", strip=True))
+            if len(title) > 3:
+                return title
 
         return page_title or base
 

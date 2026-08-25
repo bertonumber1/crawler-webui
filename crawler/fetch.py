@@ -22,6 +22,31 @@ from urllib.parse import urlparse, urljoin
 import httpx
 from . import db
 
+
+def _load_env(path=None):
+    """Read .env beside the app, without adding a dependency.
+
+    Real environment variables always win, so a systemd unit or a shell export
+    can still override the file. Without this the shipped .env.example was
+    decorative: every getenv below silently fell through to its default.
+    """
+    path = path or os.path.join(os.path.dirname(os.path.dirname(
+        os.path.abspath(__file__))), ".env")
+    try:
+        with open(path) as fh:
+            lines = fh.readlines()
+    except OSError:
+        return
+    for line in lines:
+        line = line.strip()
+        if not line or line.startswith("#") or "=" not in line:
+            continue
+        k, v = line.split("=", 1)
+        os.environ.setdefault(k.strip(), v.strip().strip('"').strip("'"))
+
+
+_load_env()
+
 UA = "crawler-webui/0.1 (personal article+release watcher; contact: local operator)"
 MIN_GAP = 2.0          # seconds between requests to the same host
 ROBOTS_TTL = 3600.0
@@ -30,7 +55,7 @@ ROBOTS_TTL = 3600.0
 # receives a challenge/blocking response. Keep the normal path first because
 # RSS/HTML requests are much cheaper that way.
 FLARESOLVERR_URL = os.getenv(
-    "FLARESOLVERR_URL", "http://192.168.0.182:8181/v1"
+    "FLARESOLVERR_URL", "http://192.168.0.182:8191/v1"
 ).rstrip("/")
 FLARESOLVERR_ENABLED = os.getenv(
     "FLARESOLVERR_ENABLED", "1"
@@ -142,10 +167,25 @@ def robots_ok(url) -> tuple[bool, str]:
 
 
 def _throttle(url):
+    """Wait out whichever is longer: our floor, or the host's Crawl-delay.
+
+    robots_ok() already parses Crawl-delay. It used to be returned as a note
+    and thrown away, so a site asking for 10s got requests every 2s.
+    """
     base = _host(url)
+    gap = MIN_GAP
+    with _lock:
+        hit = _robots.get(base)
+    if hit:
+        try:
+            declared = hit[1].crawl_delay(UA)
+        except Exception:
+            declared = None
+        if declared:
+            gap = max(gap, float(declared))
     with _lock:
         last = _last_hit.get(base, 0.0)
-        wait = MIN_GAP - (time.monotonic() - last)
+        wait = gap - (time.monotonic() - last)
     if wait > 0:
         time.sleep(wait)
     with _lock:

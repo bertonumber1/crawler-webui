@@ -8,7 +8,9 @@ BUCKETS = [
     ("build",  r"(androidfilehost\.com|sourceforge\.net|mega\.nz|mega\.co\.nz|"
                r"mediafire\.com|drive\.google\.com|onedrive\.live\.com|dropbox\.com|"
                r"pixeldrain\.com|gofile\.io|1fichier\.com|rapidgator\.net|"
-               r"nitroflare\.com|ddownload\.com|katfile\.com|turbobit\.net)"),
+               r"nitroflare\.com|ddownload\.com|katfile\.com|turbobit\.net|"
+               r"hitfile\.net|uploadgig\.com|fikper\.com|wdfiles\.ru|"
+               r"cloud\.mail\.ru|disk\.yandex\.(?:ru|com)|files\.fm)"),
     ("video",  r"(youtube\.com|youtu\.be|vimeo\.com|odysee\.com|streamable\.com)"),
     ("forum",  r"(xda-developers\.com|forum\.xda-developers\.com|reddit\.com|t\.me)"),
 ]
@@ -20,8 +22,14 @@ PREMIUM = re.compile(
 
 # Accept URLs in ordinary text, HTML attributes and encoded HTML.
 URL_RE = re.compile(
-    r"""(?i)(?:https?://|//)[^\s"'<>`\]\)}]+"""
+    r"""(?i)(?:https?://|//)[^\s"'<>`\]}]+"""
 )
+
+
+def _balance_brackets(url: str) -> str:
+    while url.endswith(")") and url.count(")") > url.count("("):
+        url = url[:-1]
+    return url
 
 
 def _normalise(url: str) -> str | None:
@@ -30,7 +38,7 @@ def _normalise(url: str) -> str | None:
 
     url = html_lib.unescape(str(url)).strip()
     url = url.replace("\\/", "/")
-    url = url.strip(" \t\r\n'\"<>[](){}.,;")
+    url = url.strip(" \t\r\n'\"<>[]{}.,;")
 
     if url.startswith("//"):
         url = "https:" + url
@@ -38,7 +46,7 @@ def _normalise(url: str) -> str | None:
         return None
 
     # Remove common trailing HTML punctuation without damaging query strings.
-    url = url.rstrip(".,;")
+    url = _balance_brackets(url.rstrip(".,;"))
     try:
         p = urlparse(url)
         if p.scheme not in ("http", "https") or not p.netloc:
