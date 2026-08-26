@@ -30,7 +30,7 @@ services:
 
       # Which file hosts to harvest. "rapidgator" is the default; "all" or a
       # comma-separated list of keys widens it without a rebuild.
-      CRAWLER_HOSTS: ${CRAWLER_HOSTS:-rapidgator}
+      CRAWLER_HOSTS: ${CRAWLER_HOSTS:-rapidgator,mega}
 
       # Diagnostic trace: bounded ring for the UI plus a rotating file.
       CRAWLER_TRACE: ${CRAWLER_TRACE:-1}
