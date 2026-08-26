@@ -1,0 +1,8 @@
+# Test-only dependencies. Kept out of requirements.txt so the image does not
+# ship a test runner; CI installs both.
+#
+# jsonschema is optional at runtime -- jd_rules degrades to structural checks
+# without it -- but CI should exercise the real validator rather than the
+# fallback, or the schema is never actually tested.
+pytest>=8,<9
+jsonschema>=4,<5
