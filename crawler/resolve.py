@@ -5,7 +5,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from urllib.parse import parse_qs, unquote, urlparse, urljoin
 from bs4 import BeautifulSoup
 
-from . import fetch, links as linkmod
+from . import fetch, links as linkmod, trace
 
 DOWNLOADABLE = {"build"}
 FOLLOWABLE = ("/download/", "/node/", "/release", "/album", "/threads/", "/topic")
@@ -15,10 +15,13 @@ FURNITURE = (
     "/admin", "/misc/", "/sites/", "/modules/", "/themes/", "/files/",
 )
 FURNITURE_EXACT = ("", "/", "/reuploads", "/collections", "/requests")
+# Words that suggest a page exists only to point somewhere else. File-host
+# names are deliberately NOT here: a Nitroflare link on a Rapidgator-only day
+# is a dead end, not a wrapper worth fetching, and listing the hosts made the
+# resolver follow every switched-off host it met.
 WRAPPER_TOKENS = (
-    "flakattak", "flakattack", "redirect", "mirror", "download", "filehost",
-    "rapidgator", "nitroflare", "ddownload", "katfile", "turbobit", "hitfile",
-    "uploadgig", "fikper",
+    "redirect", "goto", "out.php", "away.php", "link.php", "dl.php",
+    "mirror", "filehost", "download.php", "/go/", "/link/", "/dl/",
 )
 TARGET_KEYS = {
     "url", "u", "target", "dest", "destination", "redirect", "redirect_url",
@@ -27,7 +30,10 @@ TARGET_KEYS = {
 
 
 def is_downloadable(link: dict) -> bool:
-    return bool(link.get("downloadable")) or link.get("bucket") in DOWNLOADABLE
+    # The crawler currently harvests Rapidgator only.
+    # Do not let the generic "build" bucket accidentally admit MEGA,
+    # K2S, MediaFire, Nitroflare, etc.
+    return bool(link.get("downloadable"))
 
 
 def candidates(items, base_url: str, limit: int = 40) -> list[dict]:
@@ -98,6 +104,10 @@ def _direct(body: str, base: str) -> list[dict]:
 
 
 def _looks_like_wrapper(url: str, text: str = "") -> bool:
+    # A recognised file host is the destination, never a step towards it.
+    # Following one costs a request and a captcha for nothing.
+    if linkmod.is_known_file_host(url):
+        return False
     p = urlparse(url)
     host = p.netloc.lower()
     hay = f"{host} {p.path} {p.query} {text}".lower()
@@ -220,9 +230,13 @@ def resolve(items, base_url: str, limit: int = 40, on_progress=None) -> dict:
     def one(c):
         try:
             found = page_links(c["url"])
+            trace.event("resolve", "release page followed",
+                        url=c["url"], found=len(found), title=(c["title"] or "")[:60])
             return {"url": c["url"], "title": c["title"],
                     "links": found, "count": len(found)}
         except Exception as e:
+            trace.event("resolve", "release page failed",
+                        url=c["url"], error=f"{type(e).__name__}: {e}")
             return {"url": c["url"], "title": c["title"], "links": [],
                     "count": 0, "error": f"{type(e).__name__}: {e}"}
 

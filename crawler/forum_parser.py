@@ -17,8 +17,17 @@ from .models import Item
 
 STRATEGIES = {
     "vBulletin": (
-        "li[id^='thread_']", ".threadbit", ".discussion", ".tborder", "#posts",
-        ".postbit", ".postcontainer",
+        "[id^='post_message_']",
+        ".post_message",
+        ".postbody",
+        ".postcontent",
+        ".postbit",
+        ".postcontainer",
+        "li[id^='thread_']",
+        ".threadbit",
+        ".discussion",
+        ".tborder",
+        "#posts",
     ),
     "XenForo": (
         ".structItem", ".structItemContainer", ".message--post", ".block--messages",

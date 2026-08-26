@@ -12,7 +12,7 @@ RUN pip install --no-cache-dir -r requirements.txt
 COPY crawler ./crawler
 COPY fixtures ./fixtures
 COPY jd_rules ./jd_rules
-COPY jd_rules_cli.py README.md .env.example ./
+COPY jd_rules_cli.py forum_probe.py README.md .env.example ./
 
 RUN mkdir -p /data /jdownloader/folderwatch && \
     python -m compileall -q crawler jd_rules_cli.py

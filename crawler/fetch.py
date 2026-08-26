@@ -21,6 +21,7 @@ import urllib.robotparser as robotparser
 from urllib.parse import urlparse, urljoin
 import httpx
 from . import db
+from . import trace
 
 
 def _load_env(path=None):
@@ -291,6 +292,7 @@ def get(url, conditional=True) -> tuple[int, str, dict]:
                  r.headers.get("last-modified", ""), r.status_code)
 
     if r.status_code == 304:
+        trace.event("fetch", "304 not modified", url=url)
         return 304, "", dict(r.headers)
 
     # Some challenge pages return HTTP 200. Detect those as well as explicit
@@ -298,8 +300,12 @@ def get(url, conditional=True) -> tuple[int, str, dict]:
     # challenge shell and report "no links".
     challenge = _looks_like_challenge(r.text, dict(r.headers))
     if (r.status_code in FLARESOLVERR_ON or challenge) and FLARESOLVERR_ENABLED:
+        trace.event("fetch", "challenge, trying FlareSolverr",
+                    url=url, status=r.status_code)
         try:
-            return _flaresolverr_get(url)
+            out = _flaresolverr_get(url)
+            trace.event("fetch", "FlareSolverr solved", url=url, bytes=len(out[1]))
+            return out
         except FetchError as e:
             raise Blocked(
                 f"host returned {r.status_code}; FlareSolverr fallback failed: {e}"
@@ -310,5 +316,7 @@ def get(url, conditional=True) -> tuple[int, str, dict]:
     if r.status_code == 429:
         raise Blocked("host returned 429 (rate limited) — back off and retry later")
     if r.status_code >= 400:
+        trace.event("fetch", "HTTP error", url=url, status=r.status_code)
         raise FetchError(f"HTTP {r.status_code}")
+    trace.event("fetch", "ok", url=url, status=r.status_code, bytes=len(r.text))
     return r.status_code, r.text, dict(r.headers)

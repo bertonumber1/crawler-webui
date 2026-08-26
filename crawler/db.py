@@ -12,9 +12,19 @@ from contextlib import contextmanager
 from datetime import datetime, timezone
 
 HERE = os.path.dirname(os.path.abspath(__file__))
-DATA_DIR = os.path.abspath(os.environ.get("CW_DATA_DIR", os.path.dirname(HERE)))
+
+# CW_DB_PATH names the file directly and wins; CW_DATA_DIR names the directory.
+# The compose file has always set CW_DB_PATH, and it was being ignored -- the
+# database was written inside the image instead of the mounted volume, so every
+# rebuild silently started from an empty history.
+_explicit = os.environ.get("CW_DB_PATH", "").strip()
+if _explicit:
+    DB_PATH = os.path.abspath(_explicit)
+    DATA_DIR = os.path.dirname(DB_PATH)
+else:
+    DATA_DIR = os.path.abspath(os.environ.get("CW_DATA_DIR", os.path.dirname(HERE)))
+    DB_PATH = os.path.join(DATA_DIR, "crawler.db")
 os.makedirs(DATA_DIR, exist_ok=True)
-DB_PATH = os.path.join(DATA_DIR, "crawler.db")
 _lock = threading.Lock()
 
 NEW, QUEUED, CLAIMED, DOWNLOADING = "new", "queued", "claimed", "downloading"

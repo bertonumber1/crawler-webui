@@ -13,6 +13,19 @@ services:
       CW_DOWNLOAD_ROOT: ${CW_DOWNLOAD_ROOT:-/output/_CRAWLER}
       CW_JD_RULES_PATH: /data/custom.linkcrawlerrules.json
 
+      # JD's own list files, read-only. Without this the app can only report
+      # that a crawljob was written, never that JD actually took it.
+      CW_JD_CFG: /jdownloader-cfg
+
+      # Which file hosts to harvest. "rapidgator" is the default; "all" or a
+      # comma-separated list of keys widens it without a rebuild.
+      CRAWLER_HOSTS: ${CRAWLER_HOSTS:-rapidgator}
+
+      # Diagnostic trace: bounded ring for the UI plus a rotating file.
+      CRAWLER_TRACE: ${CRAWLER_TRACE:-1}
+      CRAWLER_TRACE_FILE: /logs/trace.log
+      CRAWLER_TRACE_KEEP: ${CRAWLER_TRACE_KEEP:-2000}
+
       FLARESOLVERR_ENABLED: ${FLARESOLVERR_ENABLED:-1}
       FLARESOLVERR_URL: ${FLARESOLVERR_URL:-http://127.0.0.1:8191/v1}
       FLARESOLVERR_TIMEOUT: ${FLARESOLVERR_TIMEOUT:-120}
@@ -22,6 +35,8 @@ services:
       - ${CRAWLER_DATA_DIR:-./data}:/data
       - ${CRAWLER_LOG_DIR:-./logs}:/logs
       - ${JDOWNLOADER_FOLDERWATCH:-/home/media/docker/torrentvpn-app/jdownloader/config/folderwatch}:/jdownloader-folderwatch
+      # Read-only: JD owns these files and is running. We only ever read them.
+      - ${JDOWNLOADER_CFG:-/home/media/docker/torrentvpn-app/jdownloader/config/cfg}:/jdownloader-cfg:ro
 
     healthcheck:
       test:

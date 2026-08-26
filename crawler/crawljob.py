@@ -4,6 +4,8 @@ import os
 import re
 from datetime import datetime
 
+from . import trace
+
 DEFAULT_WATCH = "/jdownloader/folderwatch"
 DEFAULT_ROOT = "/output/_CRAWLER"
 
@@ -82,4 +84,6 @@ def write(urls: list[str], name: str, package: str = "", subfolder: str = "",
         f.flush()
         os.fsync(f.fileno())
     os.replace(tmp, path)
+    trace.event("handoff", "crawljob written", path=os.path.basename(path),
+                package=pkg, links=len(clean), autostart=bool(auto_start))
     return path
