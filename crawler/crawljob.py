@@ -65,16 +65,23 @@ def write(urls: list[str], name: str, package: str = "", subfolder: str = "",
     fn = re.sub(r"\W+", "_", name or "job")[:60].strip("_") or "job"
     path = os.path.join(watch_dir(), f"cw_{fn}_{stamp}.crawljob")
 
+    # Six fields, and no more. This is the set with a long record of being
+    # accepted -- flacattack_grab.py queued 91 jobs with exactly these -- and
+    # every field beyond it is a chance to get a type wrong.
+    #
+    # That is not hypothetical. overwritePackagizerEnabled is a primitive
+    # boolean in JD; sent as the string "FALSE" it fails to deserialise and
+    # the whole job is discarded in silence: the file is consumed, moved to
+    # added/, logged as an accepted CrawlerJob, and no package ever appears.
+    # Absent and correct-boolean forms both work, so the field earns nothing
+    # and can cost everything. Omitted.
     job = {
         "enabled": "TRUE",
         "text": "\n".join(clean),
         "packageName": pkg,
-        "autoConfirm": "TRUE",
-        "autoStart": "TRUE" if auto_start else "FALSE",
-        "forcedStart": "FALSE",
         "downloadFolder": subfolder or os.path.join(download_root(), pkg),
-        "overwritePackagizerEnabled": False,
-        "deepAnalyseEnabled": False,
+        "autoStart": "TRUE" if auto_start else "FALSE",
+        "autoConfirm": "TRUE",
     }
 
     tmp = path + ".tmp"

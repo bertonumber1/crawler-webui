@@ -50,3 +50,37 @@ class CrawlJobTests(unittest.TestCase):
 
 if __name__ == "__main__":
     unittest.main()
+
+
+# --- the emitted field set -------------------------------------------------
+# JD accepts a job or discards it in silence; there is no error to catch. The
+# six fields below have a long record of being accepted, and one field beyond
+# them once made every job vanish, so the set is pinned here deliberately.
+
+SIX = {"enabled", "text", "packageName", "downloadFolder", "autoStart", "autoConfirm"}
+
+
+def _job(tmp_path, **kw):
+    import json, os
+    os.environ["CW_FOLDERWATCH"] = str(tmp_path)
+    from crawler import crawljob
+    path = crawljob.write(["https://rapidgator.net/file/abc/x.rar.html"], "T", **kw)
+    return json.load(open(path))[0]
+
+
+def test_exactly_the_six_proven_fields_are_emitted(tmp_path):
+    assert set(_job(tmp_path)) == SIX
+
+
+def test_overwrite_packagizer_is_never_emitted(tmp_path):
+    # Sent as the string "FALSE" this field fails to deserialise and JD drops
+    # the entire job without a word. Absent is the only form that cannot.
+    assert "overwritePackagizerEnabled" not in _job(tmp_path)
+
+
+def test_boolean_status_fields_are_jd_strings_not_json_booleans(tmp_path):
+    job = _job(tmp_path, auto_start=True)
+    assert job["enabled"] == "TRUE"
+    assert job["autoStart"] == "TRUE"
+    assert job["autoConfirm"] == "TRUE"
+    assert _job(tmp_path, auto_start=False)["autoStart"] == "FALSE"
