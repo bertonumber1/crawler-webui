@@ -4,6 +4,9 @@ on:
   push:
     branches: [main]
   pull_request:
+  # Lets the suite be run on demand, so a CI fix can be verified without
+  # having to push another commit to provoke it.
+  workflow_dispatch:
 
 jobs:
   test:
