@@ -43,10 +43,26 @@ STRATEGIES = {
     ),
 }
 
+# Tags removed before extraction because they never hold a release. `form` is
+# deliberately NOT here: Invision wraps every post in
+# <form data-role="moderationTools">, so decomposing forms wholesale deletes
+# the post -- and the download link inside it -- before it can be read. A real
+# search or login form is dropped by _drop_forms() below on what it contains,
+# not on being a form at all.
 FURNITURE = {
     "nav", "header", "footer", "aside", "script", "style", "noscript",
-    "template", "svg", "form",
+    "template", "svg",
 }
+
+# Forms worth removing: a password field, or a search role/name. A post-wrapper
+# form has neither.
+def _drop_forms(soup):
+    for form in soup.find_all("form"):
+        if (form.find("input", {"type": "password"})
+                or (form.get("role") == "search")
+                or "search" in " ".join(form.get("class") or []).lower()
+                or "search" in (form.get("action") or "").lower()):
+            form.decompose()
 
 
 def _title(node: Tag, fallback: str) -> str:
@@ -115,6 +131,7 @@ def parse(html: str, base_url: str, *, detection: Detection | None = None,
 
     for tag in soup.find_all(FURNITURE):
         tag.decompose()
+    _drop_forms(soup)
 
     page_title = " ".join((soup.title.get_text(" ", strip=True) if soup.title else base_url).split())
     nodes = _candidate_nodes(soup, detection.software)

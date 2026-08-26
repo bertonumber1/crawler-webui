@@ -45,6 +45,25 @@ _RAPIDGATOR_FILE = re.compile(
     r"^https?://(?:www\.)?rapidgator\.net/file/([A-Za-z0-9]+)(?:/([^?#]*))?", re.I)
 
 
+_MEGA = re.compile(
+    r"^https?://(?:www\.)?mega\.nz/(folder|file)/([A-Za-z0-9_-]+)(#[A-Za-z0-9_-]+)?", re.I)
+
+
+def _mega(url: str) -> tuple[str | None, str | None]:
+    # The part after # is the decryption key, not a page anchor. Strip it and
+    # the link is a locked folder nobody can open, so it is kept and it is part
+    # of the identity -- the same folder id with two keys is two different
+    # grabs. A link with no key is rejected: it cannot be downloaded.
+    m = _MEGA.match(url or "")
+    if not m:
+        return None, None
+    kind, ident, key = m.group(1), m.group(2), m.group(3) or ""
+    if not key:
+        return None, None
+    canonical = f"https://mega.nz/{kind}/{ident}{key}"
+    return f"mega:{ident}{key}", canonical
+
+
 def _rapidgator(url: str) -> tuple[str | None, str | None]:
     m = _RAPIDGATOR_FILE.match(url or "")
     if not m:
@@ -73,7 +92,7 @@ KNOWN: dict[str, Host] = {
         Host("uploadgig", "uploadgig.com", "UploadGig", True, _passthrough("uploadgig.com")),
         Host("fikper", "fikper.com", "Fikper", True, _passthrough("fikper.com")),
         Host("onefichier", "1fichier.com", "1fichier", True, _passthrough("1fichier.com")),
-        Host("mega", "mega.nz", "MEGA", False, _passthrough("mega.nz")),
+        Host("mega", "mega.nz", "MEGA", False, _mega),
         Host("mediafire", "mediafire.com", "MediaFire", False, _passthrough("mediafire.com")),
         Host("pixeldrain", "pixeldrain.com", "Pixeldrain", False, _passthrough("pixeldrain.com")),
         Host("gofile", "gofile.io", "GoFile", False, _passthrough("gofile.io")),
