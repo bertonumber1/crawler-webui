@@ -121,6 +121,7 @@ td.name a:hover{text-decoration:underline}
 <header>
   <h1>Crawler</h1>
   <span class=pill id=pHosts>hosts: …</span>
+  <span class=pill id=pAuth style="cursor:pointer" title="Paste a cookies.txt to crawl as a logged-in member">session: …</span>
   <span class=pill id=pJd>jd: …</span>
   <span class=pill id=pHist>sent: …</span>
   <span class=spacer></span>
@@ -149,6 +150,18 @@ td.name a:hover{text-decoration:underline}
           <span id=progText>working…</span><span id=progPct>0%</span></div>
         <div class=bar style="margin-top:4px"><div id=progBar></div></div>
       </div>
+    </div>
+
+    <div class=pad style="border-top:1px solid var(--line)">
+      <div class=row style="margin-bottom:6px">
+        <h2 style="margin:0">Session</h2><span class=spacer></span>
+        <button class=sm id=bCookieClear>clear</button>
+      </div>
+      <div id=cookieDomains class=mini style="margin-bottom:6px">not signed in — crawling as a guest</div>
+      <textarea id=cookieBox rows=3 placeholder="Paste cookies.txt here to crawl as a member"
+        style="width:100%;background:#0a0f16;border:1px solid var(--line2);border-radius:5px;
+               padding:7px;color:var(--ink);font:11px var(--mono);resize:vertical"></textarea>
+      <button class="go sm" id=bCookieSave style="margin-top:5px;width:100%">Use this session</button>
     </div>
 
     <div class=pad style="border-top:1px solid var(--line)">
@@ -362,6 +375,11 @@ $('#bProbe').onclick=async()=>{
       <div style="height:12px"></div>
       <div class=kv><span>items parsed</span><span>${d.items}</span></div>
       <div class=kv><span>harvestable links</span><span>${d.downloadable}</span></div>
+      <div class=kv><span>crawled as</span><span>${d.authenticated?'member':'guest'}</span></div>
+      ${d.guest_wall&&!d.authenticated?`<div class=card style="border-color:#5e2b2b">
+        <b class=bad>Links are hidden from guests</b>
+        <small>This page says the download links need an account. Paste a cookies.txt
+        into Session on the left and probe again, or the crawl will find nothing.</small></div>`:''}
       <div class=kv><span>next page</span><span>${d.next_page?esc(d.next_page.slice(-48)):'none'}</span></div>
       <div style="height:12px"></div>
       <h2>Hosts on the page</h2>
@@ -436,6 +454,34 @@ async function loadJd(){
       :`<div class=mini>${esc(st.detail||'JD state unreadable')}</div>`);
   }catch(e){}
 }
+async function loadCookies(){
+  try{
+    const d=await (await fetch('/api/cookies')).json();
+    const n=(d.domains||[]).length;
+    $('#pAuth').className='pill '+(d.loaded?'ok':'');
+    $('#pAuth').innerHTML='session: <b>'+(d.loaded?n+' site'+(n==1?'':'s'):'guest')+'</b>';
+    $('#cookieDomains').innerHTML = d.loaded
+      ? `<span class=ok>signed in</span> · ${d.count} cookie(s) · ${(d.domains||[]).slice(0,6).map(esc).join(', ')}`
+      : (d.error?`<span class=bad>${esc(d.error)}</span>`:'not signed in — crawling as a guest');
+  }catch(e){}
+}
+$('#bCookieSave').onclick=async()=>{
+  const text=$('#cookieBox').value.trim();
+  if(!text){ note('paste a cookies.txt first'); return; }
+  const b=$('#bCookieSave'); b.disabled=true;
+  try{
+    const d=await post('/api/cookies',{text});
+    note(`session loaded — ${d.count} cookie(s) for ${(d.domains||[]).join(', ')}`);
+    $('#cookieBox').value=''; loadCookies();
+  }catch(e){ note('cookies rejected: '+e.message); }
+  finally{ b.disabled=false; }
+};
+$('#bCookieClear').onclick=async()=>{
+  await fetch('/api/cookies',{method:'DELETE'});
+  note('session cleared — back to crawling as a guest'); loadCookies();
+};
+$('#pAuth').onclick=()=>$('#cookieBox').focus();
+
 async function loadHosts(){
   try{
     const d=await (await fetch('/api/hosts')).json();
@@ -534,7 +580,7 @@ new EventSource('/events').onmessage=e=>{
   if(m.kind==='crawl') hideProg();
 };
 
-loadHosts(); loadJd(); loadSide(); loadHistory(); loadTrace();
+loadHosts(); loadJd(); loadSide(); loadHistory(); loadTrace(); loadCookies();
 setInterval(loadTrace,1500);
 setInterval(loadJd,15000);
 </script></body></html>

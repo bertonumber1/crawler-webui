@@ -20,6 +20,7 @@ import re, time, threading, os
 import urllib.robotparser as robotparser
 from urllib.parse import urlparse, urljoin
 import httpx
+from . import cookies
 from . import db
 from . import trace
 
@@ -75,16 +76,36 @@ db.init_settings()
 
 
 def _build(proxy: str | None):
-    """httpx 0.28 takes a single `proxy=` string; None means direct."""
+    """httpx 0.28 takes a single `proxy=` string; None means direct.
+
+    The cookie jar is attached here so a logged-in session applies to every
+    request the app makes. Most forums render a thread to a guest and hide the
+    links inside it, so without cookies a members-only board looks like a board
+    with nothing on it.
+    """
     return httpx.Client(
         headers={"User-Agent": UA, "Accept": "*/*"},
         timeout=httpx.Timeout(20.0, connect=10.0),
         follow_redirects=True,
         proxy=proxy or None,
+        cookies=cookies.jar(),
     )
 
 
 _client = _build(db.setting("proxy"))
+
+
+def reload_cookies(text: str | None = None) -> dict:
+    """Load a new session and rebuild the client so it actually takes effect."""
+    global _client
+    st = cookies.save_text(text) if text is not None else cookies.load()
+    new = _build(db.setting("proxy"))
+    old, _client = _client, new
+    try:
+        old.close()
+    except Exception:
+        pass
+    return st
 
 
 def current_proxy() -> str:

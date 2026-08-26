@@ -1,11 +1,11 @@
 """crawler-webui — URL watcher, crawler and notifier. FastAPI + SSE on :8096."""
-import asyncio, json, os, sys, time
+import asyncio, json, os, re, sys, time
 from fastapi import FastAPI, HTTPException
 from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from crawler import (db, crawljob, fetch, history, hosts, jdapi, jdstate,
+from crawler import (cookies, db, crawljob, fetch, history, hosts, jdapi, jdstate,
                      links as linkmod, pagination, resolve as resolvemod, trace)
 from crawler.forum_detector import detect as detect_software
 from crawler.forum_parser import parse as parse_forum
@@ -65,6 +65,10 @@ class ForgetIn(BaseModel):
 
 class HostsIn(BaseModel):
     keys: list[str]
+
+
+class CookiesIn(BaseModel):
+    text: str = ""
 
 class ResolveIn(BaseModel):
     url: str
@@ -472,6 +476,38 @@ def jd_reconcile():
     return res
 
 
+@app.get("/api/cookies")
+def get_cookies():
+    """Which sites we currently hold a logged-in session for."""
+    return cookies.status()
+
+
+@app.post("/api/cookies")
+def put_cookies(inp: CookiesIn):
+    """Accept a pasted Netscape cookies.txt and start using it.
+
+    Pasted as text rather than uploaded because the app runs in a container
+    and the browser exporting the cookies does not: a path would have to be
+    shared, and the file would then sit on disk in two places.
+    """
+    try:
+        st = fetch.reload_cookies(inp.text)
+    except Exception as e:
+        raise HTTPException(400, f"{type(e).__name__}: {e}")
+    if not st["loaded"]:
+        raise HTTPException(400, st.get("error") or "no cookies could be read")
+    emit("cookies", {"domains": st["domains"], "count": st["count"]})
+    return st
+
+
+@app.delete("/api/cookies")
+def drop_cookies():
+    st = cookies.clear()
+    fetch.reload_cookies()
+    emit("cookies", {"domains": [], "count": 0})
+    return st
+
+
 @app.get("/api/trace")
 def get_trace(limit: int = 200, stage: str = "", since: int = 0):
     return {"status": trace.status(), "events": trace.tail(limit, stage, since)}
@@ -534,6 +570,12 @@ def probe(inp: ProbeIn):
             downloadable += bool(l.get("downloadable"))
 
     nxt = pagination.next_page(body, inp.url)
+    # A members-only board renders fine to a guest and hides the links, so
+    # "0 downloadable" means nothing unless you know which one you were.
+    authed = cookies.have_for(inp.url)
+    guest_wall = bool(re.search(
+        r"sign in to (?:view|see|download)|you (?:do not|don't) have permission"
+        r"|members only|to unlock|hidden (?:content|link)", body, re.I))
     trace.event("probe", "page probed", url=inp.url,
                 software=(detection.software if detection else "none"),
                 items=len(items), downloadable=downloadable)
@@ -547,6 +589,8 @@ def probe(inp: ProbeIn):
         "downloadable": downloadable,
         "hosts": sorted(by_host.items(), key=lambda kv: -kv[1])[:15],
         "next_page": nxt or "",
+        "authenticated": authed,
+        "guest_wall": guest_wall,
         "titles": [i.name[:90] for i in items[:12]],
     }
 

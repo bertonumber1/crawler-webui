@@ -17,6 +17,10 @@ services:
       # that a crawljob was written, never that JD actually took it.
       CW_JD_CFG: /jdownloader-cfg
 
+      # Browser session for members-only boards. Lives on the data volume so
+      # it survives a rebuild; it is a credential, so it never enters the image.
+      CW_COOKIES_FILE: /data/cookies.txt
+
       # MyJDownloader. Compose substitutes these from ./.env, which is
       # gitignored, so the credentials never enter the image or the repo.
       # Unset, the app falls back to reading JD's save files.
