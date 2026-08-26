@@ -18,7 +18,8 @@ _COMPILED = [(b, re.compile(p, re.I)) for b, p in BUCKETS]
 
 PREMIUM = re.compile(
     r"(rapidgator\.net|nitroflare\.com|ddownload\.com|katfile\.com|turbobit\.net|"
-    r"hitfile\.net|uploadgig\.com|fikper\.com)", re.I)
+    r"hitfile\.net|uploadgig\.com|fikper\.com)", re.I
+)
 
 DOWNLOAD_LABELS = {
     "rapidgator.net": "Rapidgator",
@@ -104,6 +105,11 @@ def extract(html_or_text: str, hrefs=None) -> list[dict]:
     The caller can provide absolute hrefs extracted by BeautifulSoup. We also
     scan the serialised node because Drupal modules occasionally expose links
     through data attributes or encoded markup.
+
+    Visible anchor text can contain deliberately shortened display URLs such
+    as ``https://rapidgator.net/file/abc...part1.rar`` while the href contains
+    the real URL. Those shortened display values are not valid download URLs
+    and must never be emitted alongside the real href.
     """
     seen, out = set(), []
     candidates = list(hrefs or [])
@@ -118,6 +124,10 @@ def extract(html_or_text: str, hrefs=None) -> list[dict]:
     for candidate in candidates:
         u = _normalise(candidate)
         if not u:
+            continue
+        # Reject truncated/ellipsised display URLs. The actual href, when
+        # present, is retained and will already be in candidates.
+        if "..." in u:
             continue
         key = u.rstrip("/").lower()
         if key in seen:
