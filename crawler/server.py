@@ -5,7 +5,7 @@ from fastapi.responses import HTMLResponse, StreamingResponse
 from pydantic import BaseModel
 
 sys.path.insert(0, os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
-from crawler import (db, crawljob, fetch, history, hosts, jdstate,
+from crawler import (db, crawljob, fetch, history, hosts, jdapi, jdstate,
                      links as linkmod, pagination, resolve as resolvemod, trace)
 from crawler.forum_detector import detect as detect_software
 from crawler.forum_parser import parse as parse_forum
@@ -368,10 +368,24 @@ def jd_status():
 def make_job(inp: JobIn):
     """Write the links you selected into JD's folderwatch folder."""
     try:
-        path = crawljob.write(inp.urls, inp.name, subfolder=inp.subfolder,
-                              auto_start=inp.auto_start)
+        # Prefer the API: it answers at the time. The folderwatch file is the
+        # fallback and is fire-and-forget -- JD consumes it and reports
+        # nothing, so a rejected job is indistinguishable from an accepted one.
+        clean = [u for u in (linkmod.canonical_download_url(x) for x in inp.urls) if u]
+        if not clean:
+            raise ValueError("no usable links: nothing on a harvested host")
+
+        if jdapi.configured():
+            folder = inp.subfolder or os.path.join(crawljob.download_root(),
+                                                   crawljob._safe(inp.name))
+            res = jdapi.add(clean, inp.name, folder=folder,
+                            auto_start=inp.auto_start)
+            path = f"myjdownloader:job/{res.get('job')}"
+        else:
+            path = crawljob.write(inp.urls, inp.name, subfolder=inp.subfolder,
+                                  auto_start=inp.auto_start)
         history.record_sent(
-            [{"url": u, "host": linkmod.host_only(u)} for u in inp.urls],
+            [{"url": u, "host": linkmod.host_only(u)} for u in clean],
             package=inp.name, job_path=path, title=inp.name)
     except Exception as e:
         raise HTTPException(400, str(e))
@@ -406,10 +420,48 @@ def get_crawls(limit: int = 25):
 
 @app.get("/api/jd/state")
 def jd_state():
-    """What JD actually holds, read from its own list files."""
-    snap = jdstate.snapshot()
+    """What JD actually holds: live over the API, or its save files."""
+    snap = jdstate.best_snapshot()
     snap.pop("keys", None)          # a set is not JSON
+    snap["api"] = jdapi.status()
     return snap
+
+
+@app.post("/api/jd/cleanup")
+def jd_cleanup():
+    """Remove every link JD has found to be dead, and forget them.
+
+    Both halves matter. Removing them stops dead packages accumulating;
+    forgetting them is what lets the release be crawled again, because a
+    link recorded as sent suppresses itself forever.
+    """
+    if not jdapi.configured():
+        raise HTTPException(400, "MyJDownloader is not configured; "
+                                 "cleanup needs the API, not the save files")
+    try:
+        res = jdapi.remove_offline()
+    except Exception as e:
+        raise HTTPException(400, f"{type(e).__name__}: {e}")
+    forgotten = history.forget(res.get("keys", []))
+    emit("jd_cleanup", {"removed": res["removed"], "forgotten": forgotten})
+    return {"ok": True, "removed": res["removed"], "forgotten": forgotten}
+
+
+class JDRemoveIn(BaseModel):
+    packages: list[str]
+
+
+@app.post("/api/jd/remove")
+def jd_remove(inp: JDRemoveIn):
+    """Remove named packages from JD."""
+    if not jdapi.configured():
+        raise HTTPException(400, "MyJDownloader is not configured")
+    try:
+        res = jdapi.remove_packages(inp.packages)
+    except Exception as e:
+        raise HTTPException(400, f"{type(e).__name__}: {e}")
+    emit("jd_remove", res)
+    return res
 
 
 @app.post("/api/jd/reconcile")

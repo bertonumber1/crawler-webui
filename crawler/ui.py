@@ -207,7 +207,10 @@ td.name a:hover{text-decoration:underline}
   <!-- ============ right ============ -->
   <div class=side>
     <div class=pad style="border-bottom:1px solid var(--line)">
-      <h2>JDownloader</h2>
+      <div class=row style="margin-bottom:7px">
+        <h2 style="margin:0">JDownloader</h2><span class=spacer></span>
+        <button class=sm id=bCleanup title="Remove links JD reports as dead, and forget them so the release can be found again">clear dead</button>
+      </div>
       <div id=jdBox class=mini>…</div>
     </div>
     <div class=pad>
@@ -417,12 +420,19 @@ async function loadJd(){
       (await fetch('/api/jd')).json(), (await fetch('/api/jd/state')).json()]);
     $('#pJd').className='pill '+(s.ok?'ok':'bad');
     $('#pJd').innerHTML='jd: <b>'+(s.ok?'ready':'down')+'</b>';
+    const api=st.api||{}, dead=(st.offline||[]).length;
+    $('#bCleanup').disabled=!api.configured||!dead;
+    $('#bCleanup').textContent=dead?`clear ${dead} dead`:'clear dead';
     $('#jdBox').innerHTML=
+      `<div class=kv><span>link source</span><span>${esc(st.source||'-')}</span></div>`+
       `<div class=kv><span>folderwatch</span><span>${s.ok?'ready':'unavailable'}</span></div>`+
+      (api.configured?`<div class=kv><span>API</span><span class="${api.ok?'':'bad'}">${api.ok?esc(api.device||'connected'):'down'}</span></div>`
+                     :`<div class=kv><span>API</span><span>not configured</span></div>`)+
       (st.ok?`<div class=kv><span>LinkGrabber</span><span>${st.linkgrabber.length}</span></div>
        <div class=kv><span>Downloads</span><span>${st.downloads.length}</span></div>
+       ${dead?`<div class=kv><span>offline</span><span class=bad>${dead}</span></div>`:''}
        <div style="height:8px"></div>
-       ${(st.packages||[]).slice(0,12).map(p=>`<div class=card><b>${esc(p.name.slice(0,44))}</b><small>${esc(p.folder||'')}</small></div>`).join('')||'<div class=mini>no packages</div>'}`
+       ${(st.packages||[]).slice(0,12).map(p=>`<div class=card><b>${esc((p.name||'').slice(0,44))}</b><small>${esc(p.folder||'')}${p.children?' · '+p.children+' file(s)':''}${p.bytes?' · '+fmtBytes(p.bytes):''}</small></div>`).join('')||'<div class=mini>no packages</div>'}`
       :`<div class=mini>${esc(st.detail||'JD state unreadable')}</div>`);
   }catch(e){}
 }
@@ -486,6 +496,21 @@ $('#bTraceClear').onclick=async()=>{
 };
 
 /* ---------------- progress + misc ---------------- */
+function fmtBytes(n){
+  n=Number(n)||0; if(!n) return '';
+  const u=['B','KB','MB','GB','TB']; let i=0;
+  while(n>=1024&&i<u.length-1){n/=1024;i++}
+  return n.toFixed(n<10&&i?1:0)+' '+u[i];
+}
+$('#bCleanup').onclick=async()=>{
+  const b=$('#bCleanup'); b.disabled=true;
+  try{
+    const d=await post('/api/jd/cleanup');
+    note(`removed ${d.removed} dead link(s); ${d.forgotten} forgotten so they can be found again`);
+    loadJd(); loadHistory();
+  }catch(e){ note('cleanup failed: '+e.message); b.disabled=false; }
+};
+
 function showProg(d,t,txt){ $('#prog').style.display='block';
   $('#progText').textContent=txt||''; $('#progPct').textContent=t?Math.round(d/t*100)+'%':'';
   $('#progBar').style.width=(t?d/t*100:0)+'%'; }

@@ -146,6 +146,30 @@ def snapshot() -> dict:
     }
 
 
+def best_snapshot() -> dict:
+    """JD's live state if the API is available, otherwise its save files.
+
+    The API is preferred because it sees additions immediately and reports
+    per-link availability. Reading the archives is the fallback for an install
+    with no MyJDownloader credentials, and it still answers the only question
+    that must always work: is this file already in JD.
+    """
+    from . import jdapi
+
+    if jdapi.configured():
+        try:
+            return jdapi.snapshot()
+        except Exception as e:
+            snap = snapshot()
+            snap["detail"] = (f"API unavailable ({type(e).__name__}); "
+                              f"fell back to save files")
+            snap["source"] = "files (api failed)"
+            return snap
+    snap = snapshot()
+    snap["source"] = "files"
+    return snap
+
+
 def reconcile() -> dict:
     """Update our record of what is in JD from JD's own lists.
 
@@ -156,7 +180,7 @@ def reconcile() -> dict:
     """
     from . import history
 
-    snap = snapshot()
+    snap = best_snapshot()
     if not snap["ok"]:
         return {"ok": False, "detail": snap["detail"]}
 
@@ -171,11 +195,19 @@ def reconcile() -> dict:
 
     history.mark(confirmed, history.CONFIRMED, "seen in JD")
     history.mark(gone, history.GONE, "no longer in JD")
+    # A link JD says is dead was never really had. Marking it gone rather than
+    # leaving it "sent" is what lets the release be found again; left alone it
+    # would sit in the history suppressing itself for good.
+    dead = [k for k in snap.get("offline", []) if k]
+    history.mark(dead, history.GONE, "JD reports the link offline")
+
     return {
         "ok": True,
+        "source": snap.get("source", "files"),
         "in_jd": len(present),
         "confirmed": len(confirmed),
         "gone": len(gone),
+        "offline": len(dead),
         "linkgrabber": len(snap["linkgrabber"]),
         "downloads": len(snap["downloads"]),
         "packages": snap["packages"][:50],
