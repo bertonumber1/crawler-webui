@@ -9,6 +9,13 @@ server.log
 *.log
 .env
 
+# A browser session. data/ is already ignored and that is where it normally
+# lives, but a cookies.txt is a credential and must never be committable from
+# anywhere in the tree by accident.
+cookies.txt
+*.cookies.txt
+cookies*.txt
+
 # Docker runtime state
 data/
 logs/
