@@ -106,8 +106,14 @@ def record_sent(links: list[dict], package: str = "", job_path: str = "",
     with db.db() as c:
         for l in links:
             url = l.get("url", "")
+            # Only a real canonical identity may be written down. A key that
+            # is just the URL back again means the reducer did not recognise
+            # it, and recording that would put a permanent entry in the way of
+            # nothing at all.
+            if not linkmod.is_download_host(url):
+                continue
             k = l.get("file_key") or key_for(url)
-            if not k:
+            if not k or k == url.rstrip("/").lower():
                 continue
             c.execute("""
                 INSERT INTO downloads

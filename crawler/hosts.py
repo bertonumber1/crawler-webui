@@ -127,8 +127,19 @@ def is_enabled(url: str) -> bool:
     return by_domain(url) is not None
 
 
+# A shortened display URL such as /file/abc...part1.rar must never be reduced.
+# It does not fail -- it succeeds, yielding file id "abc": a plausible identity
+# for a file that does not exist. links.extract() drops these, but the reducer
+# is the identity boundary and anything reaching it directly must be refused
+# here too, or a forged identity enters the sent-history and permanently
+# suppresses the real file.
+TRUNCATED = "..."
+
+
 def reduce(url: str) -> tuple[str | None, str | None]:
     """(identity, canonical url) for an enabled host; (None, None) otherwise."""
+    if TRUNCATED in (url or ""):
+        return None, None
     h = by_domain(url)
     if h is None:
         return None, None

@@ -4,7 +4,7 @@ import os
 import re
 from datetime import datetime
 
-from . import trace
+from . import links as linkmod, trace
 
 DEFAULT_WATCH = "/jdownloader/folderwatch"
 DEFAULT_ROOT = "/output/_CRAWLER"
@@ -49,16 +49,38 @@ def write(urls: list[str], name: str, package: str = "", subfolder: str = "",
     if not ok:
         raise RuntimeError(detail)
 
-    clean = []
+    # Preserve order, drop duplicate representations of the same file, and
+    # refuse anything that is not a usable download URL on a harvested host.
+    #
+    # This is the last point before a link leaves the process, and JD reports
+    # nothing either way: it consumes the file, moves it to added/, and stays
+    # silent whether the contents made sense or not. Rubbish accepted here is
+    # rubbish that looks queued -- and once the sent-history records it, it
+    # sits there permanently suppressing nothing.
+    clean, rejected = [], []
     seen = set()
-    for u in urls:
-        u = (u or "").strip()
-        if not u or u in seen:
+    for raw in urls:
+        raw = (raw or "").strip()
+        if not raw:
             continue
-        seen.add(u)
-        clean.append(u)
+        canonical = linkmod.canonical_download_url(raw)
+        if not canonical:
+            rejected.append(raw)
+            continue
+        key = linkmod.canonical_download_key(canonical)
+        if key in seen:
+            continue
+        seen.add(key)
+        clean.append(canonical)
+
+    if rejected:
+        trace.event("handoff", "links rejected before handoff",
+                    count=len(rejected), first=rejected[0][:120])
     if not clean:
-        raise ValueError("no links given")
+        raise ValueError(
+            "no usable links: " + (
+                f"{len(rejected)} rejected (not a harvested host, or malformed)"
+                if rejected else "none given"))
 
     pkg = _safe(package or name or "crawler-webui")
     stamp = datetime.now().strftime("%Y%m%d-%H%M%S-%f")

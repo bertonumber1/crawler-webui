@@ -28,7 +28,15 @@ def test_truncated_url_is_dropped_from_a_data_attribute():
     assert SHORT not in [l["url"] for l in extract(html)]
 
 
-def test_the_identity_a_truncated_url_would_have_forged():
-    # Documents exactly why the guard matters: this does not error, it lies.
-    assert hosts.reduce(SHORT)[0] == "rapidgator:abc"
+def test_the_reducer_refuses_a_truncated_url_outright():
+    """The identity boundary must refuse it, not just the extractor.
+
+    Left to itself the reducer does not error on /file/abc...part1.rar -- it
+    succeeds, returning file id "abc". That is the whole danger: a plausible
+    identity for a file that does not exist, which the sent-history would
+    record as downloaded and use to suppress the real file for good. Anything
+    reaching the reducer directly, such as an API caller, must be refused here
+    because it never passed through extract().
+    """
+    assert hosts.reduce(SHORT) == (None, None)
     assert hosts.reduce(REAL)[0] == "rapidgator:abc123def"

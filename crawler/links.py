@@ -137,6 +137,9 @@ def dedupe_download_links(links: list[dict]) -> list[dict]:
         item["label"] = hosts.label(canonical)
         item["premium"] = bool(PREMIUM.search(item["host"]))
         item["downloadable"] = True
+        # Guarantee the shape callers rely on, whatever the input carried.
+        item.setdefault("bucket", "build")
+        item.setdefault("file_host", True)
         out.append(item)
 
     return out
@@ -255,7 +258,15 @@ def extract(html_or_text: str, hrefs=None) -> list[dict]:
     return out
 
 def summarise(links: list[dict]) -> dict:
-    counts = {}
+    """Count links per bucket.
+
+    Tolerant of a link that arrived without a bucket. Every link built by
+    classify() has one, but this runs on the response path of a crawl, and a
+    missing key here would turn a whole successful crawl into a 500 over a
+    label nobody reads.
+    """
+    counts: dict[str, int] = {}
     for l in links:
-        counts[l["bucket"]] = counts.get(l["bucket"], 0) + 1
+        bucket = l.get("bucket") or ("build" if l.get("downloadable") else "other")
+        counts[bucket] = counts.get(bucket, 0) + 1
     return counts
