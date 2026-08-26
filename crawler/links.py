@@ -20,7 +20,8 @@ _COMPILED = [(b, re.compile(p, re.I)) for b, p in BUCKETS]
 
 PREMIUM = re.compile(
     r"(rapidgator\.net|nitroflare\.com|ddownload\.com|katfile\.com|turbobit\.net|"
-    r"hitfile\.net|uploadgig\.com|fikper\.com)", re.I)
+    r"hitfile\.net|uploadgig\.com|fikper\.com)", re.I
+)
 
 # Labels for every host the classifier knows, enabled or not -- the resolver
 # must still recognise a switched-off host as a file host rather than treating
@@ -164,10 +165,24 @@ def classify(url: str) -> dict:
 def extract(html_or_text: str, hrefs=None) -> list[dict]:
     """Collect and normalise links.
 
-    Explicit hrefs are authoritative. Embedded URL scanning deliberately
-    ignores visible text inside <a> elements because some sites display
-    shortened URLs containing ``...`` while the href contains the complete
-    URL.
+    The caller can provide absolute hrefs extracted by BeautifulSoup. We also
+    scan the serialised node because Drupal modules occasionally expose links
+    through data attributes or encoded markup.
+
+    Explicit hrefs are authoritative. Two guards keep shortened display URLs
+    out, because forums print things like
+    ``https://rapidgator.net/file/abc...part1.rar`` as the visible text of a
+    link whose href is the real URL:
+
+      * anchor display text is never scanned -- the href is already collected
+        and is the truthful version;
+      * any URL still carrying ``...`` is dropped wherever it came from.
+
+    The second guard is not redundant. A truncated Rapidgator URL does not
+    fail loudly: ``/file/abc...part1.rar`` parses as file id ``abc``, which is
+    a perfectly plausible identity for a file that does not exist, and it
+    would be written into the sent-history and silently suppress the real
+    file for good.
     """
     seen, out = set(), []
     candidates = list(hrefs or [])
@@ -225,7 +240,10 @@ def extract(html_or_text: str, hrefs=None) -> list[dict]:
         u = _normalise(candidate)
         if not u:
             continue
-
+        # Reject truncated/ellipsised display URLs. The real href, when
+        # present, is already in candidates and survives.
+        if "..." in u:
+            continue
         key = u.rstrip("/").lower()
 
         if key in seen:
