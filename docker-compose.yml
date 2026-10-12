@@ -17,6 +17,7 @@ services:
       CW_OUTPUT_UID: ${CW_OUTPUT_UID:-1000}
       CW_OUTPUT_GID: ${CW_OUTPUT_GID:-1000}
       CW_DIRECT_GAP: ${CW_DIRECT_GAP:-3-8}
+      CW_DIRECT_WORKERS: ${CW_DIRECT_WORKERS:-1}
       CW_JD_RULES_PATH: /data/custom.linkcrawlerrules.json
 
       # JD's own list files, read-only. Without this the app can only report

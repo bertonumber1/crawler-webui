@@ -190,10 +190,22 @@ def fetch_one(row: dict, client=None) -> tuple[bool, str]:
             client.close()
 
 
-def _next(rows):
+def _workers() -> int:
+    try:
+        return max(1, min(8, int(_env("CW_DIRECT_WORKERS", "1"))))
+    except ValueError:
+        return 1
+
+
+def _claim():
+    """Take the next queued file and mark it active, so no other worker
+    takes it. Called under _lock."""
+    rows = _load()
     for r in rows:
         if r.get("state") == "queued":
-            return r
+            r["state"] = "active"
+            _save(rows)
+            return dict(r)
     return None
 
 
@@ -204,8 +216,7 @@ def _loop():
     try:
         while not _stop.is_set():
             with _lock:
-                rows = _load()
-                row = _next(rows)
+                row = _claim()
             if row is None:
                 break
             ok, detail = fetch_one(row, client)
@@ -217,11 +228,11 @@ def _loop():
                         if ok:
                             r.update(state="done", error="", size=row.get("size"))
                         elif detail == "stopped":
-                            pass
+                            r["state"] = "queued"
                         elif r["tries"] >= 6 or detail.startswith(("HTTP 404", "HTTP 410")):
                             r.update(state="failed", error=detail)
                         else:
-                            r["error"] = detail
+                            r.update(state="queued", error=detail)
                 _save(rows)
             if ok:
                 _status["done"] += 1
@@ -240,19 +251,34 @@ def _loop():
                 backoff = min(backoff * 2, 1800)
     finally:
         client.close()
-        _status.update(current="", paused_until=0)
-        with _lock:
-            _worker = None
+
+
+_pool: list[threading.Thread] = []
+
+
+def _alive() -> bool:
+    return any(t.is_alive() for t in _pool)
 
 
 def ensure_worker():
+    """Start CW_DIRECT_WORKERS fetchers (default 1). Files left 'active' by
+    a restart go back in the queue first."""
     global _worker
     with _lock:
-        if _worker is not None and _worker.is_alive():
+        if _alive():
             return
+        rows = _load()
+        if any(r.get("state") == "active" for r in rows):
+            for r in rows:
+                if r.get("state") == "active":
+                    r["state"] = "queued"
+            _save(rows)
         _stop.clear()
-        _worker = threading.Thread(target=_loop, name="direct-fetch", daemon=True)
-        _worker.start()
+        _pool[:] = [threading.Thread(target=_loop, name=f"direct-fetch-{i}", daemon=True)
+                    for i in range(_workers())]
+        for t in _pool:
+            t.start()
+        _worker = _pool[0]
 
 
 def stop():
@@ -264,7 +290,7 @@ def status() -> dict:
     counts = {}
     for r in rows:
         counts[r.get("state", "?")] = counts.get(r.get("state", "?"), 0) + 1
-    return {"counts": counts, "running": bool(_worker and _worker.is_alive()),
+    return {"counts": counts, "running": _alive(), "workers": sum(t.is_alive() for t in _pool),
             "root": root(), **_status,
             "failed_files": [{"file": r.get("filename"), "folder": r.get("folder"),
                               "error": r.get("error")} for r in rows if r.get("state") == "failed"][:50]}
