@@ -66,8 +66,12 @@ def host_only(url: str) -> str:
 
 
 def is_download_host(url: str) -> bool:
-    """True when the URL is on a host we are currently harvesting."""
-    return hosts.is_enabled(url)
+    """True when the URL is on a host we are currently harvesting AND names a
+    file there (not the host's home or language page). The host's reducer
+    has the last word: a site that serves its own files (ravetapepacks) is
+    an enabled domain whose ordinary pages are still not downloads."""
+    return (hosts.is_enabled(url) and hosts.names_a_file(url)
+            and hosts.reduce(url)[0] is not None)
 
 
 def is_known_file_host(url: str) -> bool:

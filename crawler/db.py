@@ -312,3 +312,87 @@ def set_setting(key, value):
 def all_settings() -> dict:
     with db() as c:
         return {r["key"]: r["value"] for r in c.execute("SELECT key, value FROM settings")}
+
+
+# --------------------------------------------------------------- thanks
+# Topics queued for a thank-you reply. UNIQUE(url) is the guarantee that
+# matters: whatever the runner does, a topic cannot be thanked twice, and a
+# row that reached 'posted' is never handed out as pending again.
+
+THANKS_STATES = ("pending", "posted", "failed", "skipped")
+
+
+def init_thanks():
+    with db() as c:
+        c.executescript("""
+        CREATE TABLE IF NOT EXISTS thanks (
+            id INTEGER PRIMARY KEY AUTOINCREMENT,
+            url TEXT NOT NULL UNIQUE,
+            title TEXT DEFAULT '',
+            state TEXT NOT NULL DEFAULT 'pending',
+            message TEXT DEFAULT '',
+            note TEXT DEFAULT '',
+            error TEXT DEFAULT '',
+            posted_at TEXT DEFAULT '',
+            created TEXT NOT NULL
+        );
+        CREATE INDEX IF NOT EXISTS idx_thanks_state ON thanks(state);
+        """)
+
+
+def thanks_add(url, title="") -> bool:
+    """True when this is a new target; False when it was already queued."""
+    with db() as c:
+        cur = c.execute(
+            "INSERT OR IGNORE INTO thanks (url, title, state, created)"
+            " VALUES (?,?,'pending',?)", (url, title, now()))
+        return bool(cur.rowcount)
+
+
+def thanks_get(url) -> dict | None:
+    with db() as c:
+        r = c.execute("SELECT * FROM thanks WHERE url=?", (url,)).fetchone()
+        return dict(r) if r else None
+
+
+def thanks_set(url, **fields):
+    allowed = {"state", "message", "note", "error", "posted_at", "title"}
+    sets = {k: v for k, v in fields.items() if k in allowed}
+    if not sets:
+        return
+    cols = ", ".join(f"{k}=?" for k in sets)
+    with db() as c:
+        c.execute(f"UPDATE thanks SET {cols} WHERE url=?", (*sets.values(), url))
+
+
+def thanks_pending(limit=50) -> list:
+    with db() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT * FROM thanks WHERE state='pending' ORDER BY id LIMIT ?",
+            (limit,))]
+
+
+def thanks_list(limit=200) -> list:
+    with db() as c:
+        return [dict(r) for r in c.execute(
+            "SELECT * FROM thanks ORDER BY"
+            " CASE state WHEN 'pending' THEN 0 ELSE 1 END, id LIMIT ?", (limit,))]
+
+
+def thanks_counts() -> dict:
+    with db() as c:
+        return {r["state"]: r["n"] for r in
+                c.execute("SELECT state, COUNT(*) n FROM thanks GROUP BY state")}
+
+
+def thanks_delete(tid) -> int:
+    with db() as c:
+        return c.execute("DELETE FROM thanks WHERE id=?", (tid,)).rowcount
+
+
+def thanks_retry(tid) -> int:
+    """Put a failed or skipped row back in the queue. 'posted' stays put."""
+    with db() as c:
+        return c.execute(
+            "UPDATE thanks SET state='pending', error='' WHERE id=?"
+            " AND state IN ('failed','skipped')", (tid,)).rowcount

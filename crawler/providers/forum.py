@@ -27,11 +27,20 @@ class Forum:
             pass
         return soup_title or url
 
-    def poll(self, url, limit=50):
+    def _parse_html(self, body, url, since=None, limit=50):
+        """Parse a page already fetched (the crawl loop fetches once)."""
+        items, detection = parse(body, url, limit=limit, since=since)
+        if not detection:
+            raise ProviderError("forum software could not be detected")
+        for item in items:
+            item.summary = f"[{detection.software}] {item.summary}"[:400]
+        return items
+
+    def poll(self, url, limit=50, since=None):
         status, body, _ = fetch.get(url, conditional=False)
         if status == 304 or not body:
             return []
-        items, detection = parse(body, url, limit=limit)
+        items, detection = parse(body, url, limit=limit, since=since)
         if not detection:
             raise ProviderError("forum software could not be detected")
         for item in items:

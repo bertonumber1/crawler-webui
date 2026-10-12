@@ -4,13 +4,19 @@ services:
       context: .
       dockerfile: Dockerfile
     container_name: crawler-webui
-    restart: unless-stopped
+    restart: "no"  # owner: fully off 2026-09-19
     network_mode: "container:gluetun"
 
     environment:
+      # Without this the container runs on UTC - an hour behind the rest of the stack
+      # in BST, which makes its timestamps disagree with every other service's logs.
+      TZ: Europe/London
       CW_DB_PATH: /data/crawler.db
       CW_FOLDERWATCH: /jdownloader-folderwatch
       CW_DOWNLOAD_ROOT: ${CW_DOWNLOAD_ROOT:-/output/_CRAWLER}
+      CW_OUTPUT_UID: ${CW_OUTPUT_UID:-1000}
+      CW_OUTPUT_GID: ${CW_OUTPUT_GID:-1000}
+      CW_DIRECT_GAP: ${CW_DIRECT_GAP:-3-8}
       CW_JD_RULES_PATH: /data/custom.linkcrawlerrules.json
 
       # JD's own list files, read-only. Without this the app can only report
@@ -28,9 +34,31 @@ services:
       CW_MYJD_PASSWORD: ${CW_MYJD_PASSWORD:-}
       CW_MYJD_DEVICE: ${CW_MYJD_DEVICE:-}
 
-      # Which file hosts to harvest. "rapidgator" is the default; "all" or a
-      # comma-separated list of keys widens it without a rebuild.
-      CRAWLER_HOSTS: ${CRAWLER_HOSTS:-rapidgator,mega}
+      # Which file hosts to harvest. "cloud" = Rapidgator plus every free
+      # cloud drive (MEGA, Google Drive, TeraBox, Dropbox, ...); "all" or a
+      # comma-separated list of keys (see crawler/hosts.py) without a rebuild.
+      CRAWLER_HOSTS: ${CRAWLER_HOSTS:-cloud}
+
+      # Hosts read like a person browsing (browser UA, one page at a time,
+      # random pause between pages) -- see crawler/fetch.py. Empty = off.
+      CW_STEALTH_HOSTS: ${CW_STEALTH_HOSTS:-}
+      CW_STEALTH_OS: ${CW_STEALTH_OS:-linux}
+      CW_STEALTH_GAP: ${CW_STEALTH_GAP:-90-150}
+      # Default date window for every crawl, in months (0 = no limit). The
+      # value saved from the UI ("only the last N months") takes precedence.
+      CW_SINCE_MONTHS: ${CW_SINCE_MONTHS:-0}
+
+      # Thank-you poster. The only thing here that writes to a board, so it
+      # is off unless CW_THANKS_ENABLED is set AND started by hand in the UI,
+      # and it stays in dry run until that is turned off too. See .env.example.
+      CW_THANKS_ENABLED: ${CW_THANKS_ENABLED:-0}
+      CW_THANKS_HOSTS: ${CW_THANKS_HOSTS:-foroactivo.com}
+      CW_THANKS_MESSAGE: ${CW_THANKS_MESSAGE:-gracias amigo}
+      CW_THANKS_BURST: ${CW_THANKS_BURST:-3}
+      CW_THANKS_WINDOW: ${CW_THANKS_WINDOW:-1500}
+      CW_THANKS_SPACING: ${CW_THANKS_SPACING:-40-90}
+      CW_THANKS_DAILY_MAX: ${CW_THANKS_DAILY_MAX:-24}
+      CW_THANKS_ROBOTS: ${CW_THANKS_ROBOTS:-respect}
 
       # Diagnostic trace: bounded ring for the UI plus a rotating file.
       CRAWLER_TRACE: ${CRAWLER_TRACE:-1}
@@ -48,6 +76,9 @@ services:
       - ${JDOWNLOADER_FOLDERWATCH:-/home/media/docker/torrentvpn-app/jdownloader/config/folderwatch}:/jdownloader-folderwatch
       # Read-only: JD owns these files and is running. We only ever read them.
       - ${JDOWNLOADER_CFG:-/home/media/docker/torrentvpn-app/jdownloader/config/cfg}:/jdownloader-cfg:ro
+      # JD's own output, mounted at the same path JD sees it: the polite
+      # fetcher (crawler/direct.py) saves self-hosting sites' files here.
+      - ${JDOWNLOADER_OUTPUT:-/mnt/usb-b/drive/downloads/jdownloader}:/output
 
     healthcheck:
       test:

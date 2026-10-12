@@ -54,3 +54,11 @@ def test_mark_moves_state_without_losing_the_row(store):
     store.record_sent(store.annotate([{"url": LONG}]), package="P")
     store.mark(["rapidgator:abc123"], store.CONFIRMED)
     assert store.annotate([{"url": LONG}])[0]["prior_state"] == store.CONFIRMED
+
+
+def test_forget_all_and_clear_crawls(store):
+    store.record_crawl("https://f.test/a")
+    assert store.crawl_history(5)
+    assert store.clear_crawls() == 1
+    assert store.crawl_history(5) == []
+    assert store.forget_all() == 0

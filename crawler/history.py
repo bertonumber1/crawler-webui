@@ -41,6 +41,12 @@ def init():
             note       TEXT DEFAULT ''
         );
         CREATE INDEX IF NOT EXISTS idx_downloads_state ON downloads(state);
+        CREATE TABLE IF NOT EXISTS releases (
+            url    TEXT PRIMARY KEY,
+            title  TEXT DEFAULT '',
+            keys   TEXT DEFAULT '[]',
+            ts     TEXT NOT NULL
+        );
         CREATE TABLE IF NOT EXISTS crawls (
             id        INTEGER PRIMARY KEY AUTOINCREMENT,
             url       TEXT NOT NULL,
@@ -169,6 +175,12 @@ def forget(keys) -> int:
     return len(keys)
 
 
+def forget_all() -> int:
+    """Drop every row: everything may be queued again."""
+    with db.db() as c:
+        return c.execute("DELETE FROM downloads").rowcount
+
+
 # ------------------------------------------------------------------ crawls
 
 def record_crawl(url: str, provider: str = "", items: int = 0, links: int = 0,
@@ -186,3 +198,41 @@ def crawl_history(limit: int = 25) -> list[dict]:
     with db.db() as c:
         return [dict(r) for r in c.execute(
             "SELECT * FROM crawls ORDER BY id DESC LIMIT ?", (limit,)).fetchall()]
+
+
+def clear_crawls() -> int:
+    with db.db() as c:
+        return c.execute("DELETE FROM crawls").rowcount
+
+
+
+# ------------------------------------------------------------------ releases
+# A release page, once read, is remembered with the files it offered. When every
+# one of those files has since been sent to JD the release is "done", and a
+# re-crawl need not open its page again. Pages that offered nothing are not
+# remembered: a thanks gate or a late upload may change that.
+
+def remember_release(url: str, title: str, links: list[dict]) -> None:
+    keys = sorted({key_for(l.get("url", "")) for l in links if l.get("url")})
+    if not url or not keys:
+        return
+    with db.db() as c:
+        c.execute("INSERT OR REPLACE INTO releases (url,title,keys,ts) VALUES (?,?,?,?)",
+                  (url.rstrip("/").lower(), title or "", json.dumps(keys), db.now()))
+
+
+def done_releases(urls) -> set:
+    """The subset of release URLs whose every file has already been sent."""
+    urls = {u.rstrip("/").lower() for u in urls if u}
+    if not urls:
+        return set()
+    with db.db() as c:
+        rows = []
+        ul = list(urls)
+        for i in range(0, len(ul), 500):
+            chunk = ul[i:i + 500]
+            rows += c.execute("SELECT url, keys FROM releases WHERE url IN (%s)"
+                              % ",".join("?" * len(chunk)), chunk).fetchall()
+    want = {r[0]: json.loads(r[1] or "[]") for r in rows}
+    sent = known([k for ks in want.values() for k in ks])
+    return {u for u, ks in want.items() if ks and all(k in sent for k in ks)}

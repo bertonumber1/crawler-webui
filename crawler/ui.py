@@ -133,17 +133,34 @@ td.name a:hover{text-decoration:underline}
   <aside>
     <div class=pad>
       <h2>Source</h2>
-      <input id=url placeholder="Forum thread, tag page or release URL">
+      <input id=url placeholder="Forum thread, tag/genre page or release URL (paste several to crawl them in turn)">
       <div class=row style="margin-top:7px">
+        <button class=go id=bAuto title="Paste a link and press this: every page is read, only posts inside the date window, links checked with the host (dead and MP3 dropped), nothing already sent, each release goes to JDownloader as soon as it is read.">⚡ Auto</button>
         <button class=go id=bCrawl>Crawl</button>
+        <button id=bStop style="display:none" title="Stop after the page in hand. Whatever was found so far is kept">Stop</button>
         <button id=bProbe>Probe</button>
         <button id=bWatch class=sm>Watch</button>
       </div>
       <div class=row style="margin-top:7px">
-        <label class=ctl>pages
-          <input id=pages type=number min=1 max=25 value=1
+        <label class=ctl title="How many listing pages to follow. 0 = every page (the pager is detected automatically)">pages
+          <input id=pages type=number min=0 max=500 value=0
                  style="width:52px;padding:3px 5px;background:#0a0f16;border:1px solid var(--line2);border-radius:4px"></label>
         <label class=ctl><input type=checkbox id=includeSeen> show already sent</label>
+        <label class=ctl title="Listings are newest first: stop following pages at the first page whose releases were all sent before. A weekly re-crawl then reads a page or two, not the whole genre."><input type=checkbox id=caughtUp checked> stop when caught up</label>
+      </div>
+      <div class=row style="margin-top:5px">
+        <label class=ctl title="Each topic's new links go to JDownloader as soon as that topic is read, one package at a time, instead of waiting for the crawl to finish">
+          <input type=checkbox id=sendEach> send each release to JD as it's found</label>
+      </div>
+      <div class=row style="margin-top:5px">
+        <label class=ctl title="Only open topics whose title says FLAC, WAV or LOSSLESS. MP3/LOSSY and request threads are skipped without being visited.">
+          <input type=checkbox id=losslessOnly checked> lossless only</label>
+      </div>
+      <div class=row style="margin-top:5px">
+        <label class=ctl title="Only posts written in the last N months, on every site. Older posts and board rows are skipped, listings stop paging once a whole page is older, and long threads are read from the newest page back. Old posts mostly link to files that died years ago. 0 = no limit. Saved as your default.">
+          only the last <input id=sinceMonths type=number min=0 max=600 value=0
+                 style="width:52px;padding:3px 5px;background:#0a0f16;border:1px solid var(--line2);border-radius:4px"> months
+          <span class=mini id=sinceNote style="opacity:.7">(0 = all)</span></label>
       </div>
       <div id=prog style="display:none;margin-top:10px">
         <div class=mini style="display:flex;justify-content:space-between">
@@ -162,19 +179,57 @@ td.name a:hover{text-decoration:underline}
         style="width:100%;background:#0a0f16;border:1px solid var(--line2);border-radius:5px;
                padding:7px;color:var(--ink);font:11px var(--mono);resize:vertical"></textarea>
       <button class="go sm" id=bCookieSave style="margin-top:5px;width:100%">Use this session</button>
+      <div id=stealthRow style="margin-top:8px;display:none">
+        <div class=row><span class=mini>Browse as</span><span class=spacer></span>
+          <select id=stealthOs style="background:#0a0f16;border:1px solid var(--line2);border-radius:5px;
+                  color:var(--ink);font:11px var(--mono);padding:3px 6px">
+            <option value=windows>Brave · Windows</option>
+            <option value=linux>Brave · Linux</option>
+          </select></div>
+        <div id=stealthNote class=mini style="margin-top:4px"></div>
+      </div>
+    </div>
+
+    <div class=pad id=thanksPanel style="border-top:1px solid var(--line);display:none">
+      <div class=row style="margin-bottom:6px">
+        <h2 style="margin:0">Thanks</h2><span class=spacer></span>
+        <span class=mini id=thanksState>off</span>
+      </div>
+      <div class=mini style="margin-bottom:6px">Some boards only show the download
+        box to an account that has replied. This posts a thank-you, and nothing else.</div>
+      <div id=thanksDry class=mini style="margin-bottom:6px"></div>
+      <textarea id=thanksBox rows=3 placeholder="Paste topic URLs, one per line"
+        style="width:100%;background:#0a0f16;border:1px solid var(--line2);border-radius:5px;
+               padding:7px;color:var(--ink);font:11px var(--mono);resize:vertical"></textarea>
+      <div class=row style="margin-top:5px">
+        <button class="go sm" id=bThanksAdd>Queue these</button>
+        <button class=sm id=bThanksCrawl title="Queue every topic the last crawl opened that had no links in it">from last crawl</button>
+        <button class=sm id=bThanksPreview title="Read the first queued topic and show what would be posted, without posting">preview</button>
+      </div>
+      <div class=row style="margin-top:7px">
+        <label class=ctl title="Walk the whole path and report the form, but never send it. Turn this off only when the preview looks right."><input type=checkbox id=thanksDryRun checked> dry run</label>
+        <span class=spacer></span>
+        <button class="go sm" id=bThanksStart>Start</button>
+        <button class=sm id=bThanksStop>Stop</button>
+      </div>
+      <div class=mini id=thanksPace style="margin-top:6px"></div>
+      <div id=thanksList class=mini style="margin-top:6px">nothing queued</div>
     </div>
 
     <div class=pad style="border-top:1px solid var(--line)">
-      <h2>Hosts harvested</h2>
+      <div class=row style="margin-bottom:4px"><h2 style="margin:0">Hosts harvested</h2><span class=spacer></span>
+        <button class=sm id=bHostsAll>all</button><button class=sm id=bHostsNone title="Keeps the first host on: at least one must stay enabled">none</button></div>
       <div id=hostList class=mini>…</div>
     </div>
 
     <div class=pad style="border-top:1px solid var(--line)">
-      <h2>Watches</h2><div id=watches class=mini>none</div>
+      <div class=row style="margin-bottom:4px"><h2 style="margin:0">Watches</h2><span class=spacer></span>
+        <button class=sm id=bWatchesClear>remove all</button></div><div id=watches class=mini>none</div>
     </div>
 
     <div class=pad style="border-top:1px solid var(--line)">
-      <h2>Recent crawls</h2><div id=crawls class=mini>none</div>
+      <div class=row style="margin-bottom:4px"><h2 style="margin:0">Recent crawls</h2><span class=spacer></span>
+        <button class=sm id=bCrawlsClear>clear</button></div><div id=crawls class=mini>none</div>
     </div>
   </aside>
 
@@ -210,6 +265,7 @@ td.name a:hover{text-decoration:underline}
       <div class="row pad" style="border-bottom:1px solid var(--line)">
         <button class=sm id=bReconcile>Reconcile with JD</button>
         <button class=sm id=bForget disabled>Forget selected</button>
+        <button class=sm id=bForgetAll title="Forget every file ever sent, so all of them can be queued again">Forget all</button>
         <span class=spacer></span><span class=mini id=histCount></span>
       </div>
       <div id=histOut><div class=empty><b>Nothing sent yet</b>
@@ -320,22 +376,77 @@ async function post(u,b){
   if(!r.ok) throw new Error(d.detail||('HTTP '+r.status));
   return d;
 }
-$('#bCrawl').onclick=async()=>{
-  const url=$('#url').value.trim(); if(!url) return;
-  const b=$('#bCrawl'); b.disabled=true; b.textContent='Crawling…';
-  $('#results').innerHTML='<div class=empty><b>Crawling</b>Following the site at its own pace.</div>';
-  showProg(0,1,'starting');
+function crawlBusy(on){
+  const b=$('#bCrawl'); b.disabled=on; b.textContent=on?'Crawling…':'Crawl';
+  const a=$('#bAuto'); if(a){ a.disabled=on; a.textContent=on?'⚡ Running…':'⚡ Auto'; }
+  $('#bStop').style.display=on?'':'none';
+}
+async function showJobResult(){
+  const j=await (await fetch('/api/crawl/job')).json();
+  crawlBusy(j.state==='running');
+  if(j.state==='running'){ showProg(0,0,`crawling ${j.index+1}/${j.urls.length}: ${j.url}`); return; }
+  hideProg();
+  const d=j.result; if(!d) return;
+  items=d.items||[]; render();
+  note((j.state==='stopped'?'STOPPED · ':'')+
+       (d.sent&&d.sent.packages?`${d.sent.packages} package(s) sent to JD as found · `:'')+
+       `${d.count} release(s) · ${d.fresh} new of ${d.links} link(s)`+
+       (d.already_sent?` · ${d.already_sent} already sent`:'')+` · ${d.pages} page(s)`+
+       (d.skipped_known?` · ${d.skipped_known} known release(s) not re-opened`:'')+
+       (d.caught_up?' · stopped paging: caught up':'')+
+       (j.urls.length>1?` · ${j.finished_urls}/${j.urls.length} URL(s)`:''));
+  (d.errors||[]).forEach(e=>note('crawl failed: '+e));
+  if(!d.count&&d.errors&&d.errors.length)
+    $('#results').innerHTML=`<div class=empty><b>Crawl failed</b>${esc(d.errors.join(' | '))}</div>`;
+  loadSide();
+}
+$('#bAuto').onclick=async()=>{
+  const urls=$('#url').value.trim().split(/\s+/).filter(Boolean); if(!urls.length){ note('paste a link first'); return; }
+  crawlBusy(true);
+  const months=Math.max(0,+$('#sinceMonths').value||0);
+  $('#results').innerHTML=`<div class=empty><b>Auto</b>Reading ${urls.length>1?urls.length+' links':'the link'}${months?`, posts from the last ${months} months`:''}, lossless only, checking every link with its host, nothing already sent. Each release goes to JDownloader as it is found. You can close this page; it carries on.</div>`;
+  showProg(0,0,'starting');
   try{
-    const d=await post('/api/crawl',{url,pages:+$('#pages').value||1,
-                                     include_seen:$('#includeSeen').checked});
-    items=d.items||[]; render();
-    note(`${d.count} release(s) · ${d.fresh} new of ${d.links} link(s)`+
-         (d.already_sent?` · ${d.already_sent} already sent`:'')+` · ${d.pages} page(s)`);
-    loadSide();
+    await post('/api/crawl/start',{url:urls[0],urls,provider:'auto',pages:0,
+                                     include_seen:false, send_each:true, lossless_only:true,
+                                     stop_when_caught_up:true, since_months:months,
+                                     auto_start:$('#autostart').checked});
   }catch(e){
-    $('#results').innerHTML=`<div class=empty><b>Crawl failed</b>${esc(e.message)}</div>`;
-  }finally{ b.disabled=false; b.textContent='Crawl'; hideProg(); }
+    crawlBusy(false); hideProg();
+    $('#results').innerHTML=`<div class=empty><b>Auto failed</b>${esc(e.message)}</div>`;
+  }
 };
+$('#bCrawl').onclick=async()=>{
+  const urls=$('#url').value.trim().split(/\s+/).filter(Boolean); if(!urls.length) return;
+  crawlBusy(true);
+  $('#results').innerHTML=`<div class=empty><b>Crawling</b>Following the site at its own pace${urls.length>1?` · ${urls.length} URLs, one after another`:''}. You can refresh or close this page; the crawl carries on.</div>`;
+  showProg(0,0,'starting');
+  try{
+    await post('/api/crawl/start',{url:urls[0],urls,provider:'auto',pages:Math.max(0,+$('#pages').value||0),
+                                     include_seen:$('#includeSeen').checked,
+                                     send_each:$('#sendEach').checked,
+                                     lossless_only:$('#losslessOnly').checked,
+                                     stop_when_caught_up:$('#caughtUp').checked,
+                                     since_months:Math.max(0,+$('#sinceMonths').value||0),
+                                     auto_start:$('#autostart').checked});
+  }catch(e){
+    crawlBusy(false); hideProg();
+    $('#results').innerHTML=`<div class=empty><b>Crawl failed</b>${esc(e.message)}</div>`;
+  }
+};
+$('#bStop').onclick=async()=>{
+  $('#bStop').disabled=true;
+  try{ await post('/api/crawl/job/stop'); note('stopping: finishing the page in hand…'); }
+  finally{ setTimeout(()=>$('#bStop').disabled=false,1500); }
+};
+// Several URLs pasted at once (one per line) arrive as one line in an <input>.
+$('#url').addEventListener('paste',e=>{
+  const t=(e.clipboardData||window.clipboardData).getData('text')||'';
+  if(!/\s/.test(t.trim())) return;
+  e.preventDefault();
+  const el=e.target; el.value=((el.value.trim()?el.value.trim()+' ':'')+t.trim().split(/\s+/).join(' '));
+});
+showJobResult().catch(()=>{});
 
 /* ---------------- send ---------------- */
 $('#bSend').onclick=async()=>{
@@ -362,7 +473,7 @@ $('#bSend').onclick=async()=>{
 
 /* ---------------- probe ---------------- */
 $('#bProbe').onclick=async()=>{
-  const url=$('#url').value.trim(); if(!url) return;
+  const url=$('#url').value.trim().split(/\s+/)[0]; if(!url) return;
   $$('.tab').forEach(x=>x.classList.toggle('on',x.dataset.pane==='probe'));
   $$('.tabpane').forEach(p=>p.classList.toggle('on',p.id==='pane-probe'));
   $('#probeOut').innerHTML='<div class=empty><b>Probing</b>One request, nothing queued.</div>';
@@ -400,7 +511,7 @@ async function loadHistory(){
     $('#histCount').textContent=Object.entries(c).map(([k,v])=>`${k.replace('_',' ')} ${v}`).join(' · ');
     $('#pHist').innerHTML='sent: <b>'+(hist.length)+'</b>';
     if(!hist.length){ $('#histOut').innerHTML='<div class=empty><b>Nothing sent yet</b>Files handed to JDownloader are remembered here.</div>'; return; }
-    $('#histOut').innerHTML='<table><thead><tr><th class=pick></th><th>File</th>'+
+    $('#histOut').innerHTML='<table><thead><tr><th class=pick><input type=checkbox id=histAll title="select all"></th><th>File</th>'+
       '<th>Package</th><th>State</th><th>When</th></tr></thead><tbody>'+
       hist.map(h=>`<tr><td class=pick><input type=checkbox data-key="${esc(h.file_key)}"></td>
         <td class=name><a href="${esc(h.url)}" target=_blank rel=noreferrer>${esc(fileName(h.url))}</a></td>
@@ -408,9 +519,10 @@ async function loadHistory(){
         <td><span class="tag ${esc(h.state)}">${esc(String(h.state).replace('_',' '))}</span></td>
         <td class=mini>${esc((h.last_seen||'').replace('T',' ').slice(0,16))}</td></tr>`).join('')+
       '</tbody></table>';
-    $('#histOut').querySelectorAll('input[data-key]').forEach(c=>c.onchange=()=>{
-      $('#bForget').disabled=!$('#histOut').querySelector('input[data-key]:checked');
-    });
+    const histSync=()=>{ const n=$$('#histOut input[data-key]:checked').length;
+      $('#bForget').disabled=!n; $('#bForget').textContent=n?`Forget selected (${n})`:'Forget selected'; };
+    $('#histOut').querySelectorAll('input[data-key]').forEach(c=>c.onchange=histSync);
+    $('#histAll').onchange=e=>{ $$('#histOut input[data-key]').forEach(c=>c.checked=e.target.checked); histSync(); };
   }catch(e){}
 }
 $('#bForget').onclick=async()=>{
@@ -419,6 +531,11 @@ $('#bForget').onclick=async()=>{
   await post('/api/history/forget',{keys});
   note(`${keys.length} file(s) forgotten — they can be queued again`);
   $('#bForget').disabled=true; loadHistory();
+};
+$('#bForgetAll').onclick=async()=>{
+  if(!confirm('Forget EVERY file in the history? They can all be queued again.')) return;
+  const d=await post('/api/history/forget',{keys:[],all:true});
+  note(`${d.forgotten} file(s) forgotten — history cleared`); loadHistory();
 };
 $('#bReconcile').onclick=async()=>{
   const b=$('#bReconcile'); b.disabled=true; b.textContent='Reading JD…';
@@ -482,6 +599,123 @@ $('#bCookieClear').onclick=async()=>{
 };
 $('#pAuth').onclick=()=>$('#cookieBox').focus();
 
+async function loadStealth(){
+  try{
+    const d=await (await fetch('/api/stealth')).json();
+    // Only shown when stealth hosts are configured; otherwise the crawler
+    // uses its honest identity everywhere and there is nothing to choose.
+    if(!(d.hosts||[]).length){ $('#stealthRow').style.display='none'; return; }
+    $('#stealthRow').style.display='';
+    $('#stealthOs').value=d.os;
+    const [lo,hi]=d.gap;
+    $('#stealthNote').textContent=`${d.hosts.join(', ')} · one page every ${lo}–${hi}s`;
+  }catch(e){}
+}
+$('#stealthOs').onchange=async()=>{
+  try{
+    const d=await post('/api/stealth',{os:$('#stealthOs').value});
+    note('now browsing '+d.hosts.join(', ')+' as Brave on '+(d.os=='windows'?'Windows':'Linux'));
+  }catch(e){ note('could not change browser: '+e.message); loadStealth(); }
+};
+
+async function loadThanks(){
+  try{
+    const d=await (await fetch('/api/thanks')).json();
+    // The panel only exists for a board that needs it. With the feature
+    // switched off at the environment there is nothing to show or press.
+    if(!d.enabled){ $('#thanksPanel').style.display='none'; return; }
+    $('#thanksPanel').style.display='';
+    thanksZero=(d.zero_link_topics||[]).length;
+    const c=d.counts||{};
+    $('#thanksState').innerHTML = d.running
+      ? `<span class=ok>${esc(d.state)}</span>${d.next_in?' · next in '+fmtWait(d.next_in):''}`
+      : 'stopped';
+    $('#thanksDry').innerHTML = d.dry_run
+      ? '<span class=ok>dry run — nothing will be posted</span>'
+      : '<span class=bad>LIVE — replies will be posted as you</span>';
+    $('#thanksDryRun').checked=!!d.dry_run;
+    const [lo,hi]=d.spacing||[0,0];
+    $('#thanksPace').textContent=
+      `${d.burst} post(s) every ${Math.round(d.window/60)} min, ${lo}–${hi}s apart `+
+      `· ${d.posted_today}/${d.daily_max} today · "${(d.messages||[]).join('" / "')}"`;
+    $('#bThanksCrawl').textContent=thanksZero?`from last crawl (${thanksZero})`:'from last crawl';
+    $('#bThanksStart').disabled=!!d.running || !(c.pending||0);
+    $('#bThanksStop').disabled=!d.running;
+    const rows=(d.targets||[]);
+    $('#thanksList').innerHTML = rows.length ? rows.map(t=>
+      `<div class=card><b>${esc((t.title||t.url).slice(-46))}</b>
+       <small>${esc(t.state)}${t.error?' · '+esc(t.error.slice(0,70)):''}${t.message?' · "'+esc(t.message)+'"':''}
+       ${t.state!=='posted'?`<a href=# data-thanks-del=${t.id}> remove</a>`:''}</small></div>`
+      ).join('') : 'nothing queued';
+    $$('#thanksList [data-thanks-del]').forEach(a=>a.onclick=async e=>{
+      e.preventDefault();
+      await fetch('/api/thanks/targets/'+a.dataset.thanksDel,{method:'DELETE'});
+      loadThanks();
+    });
+    if(d.note) $('#thanksList').title=d.note;
+  }catch(e){}
+}
+let thanksZero=0;
+function fmtWait(s){ return s>=60?Math.round(s/60)+'m':s+'s'; }
+$('#bThanksAdd').onclick=async()=>{
+  const urls=$('#thanksBox').value.split(/\s+/).filter(Boolean);
+  if(!urls.length){ note('paste one or more topic URLs first'); return; }
+  try{
+    const d=await post('/api/thanks/targets',{urls});
+    note(`queued ${d.added.length}${d.rejected.length?', rejected '+d.rejected.length:''}`);
+    (d.rejected||[]).forEach(r=>note('  ✗ '+r.url+' — '+r.why));
+    $('#thanksBox').value=''; loadThanks();
+  }catch(e){ note('could not queue: '+e.message); }
+};
+$('#bThanksCrawl').onclick=async()=>{
+  try{
+    const d=await post('/api/thanks/from-crawl',{});
+    note(d.added.length?`queued ${d.added.length} topic(s) the last crawl found nothing in`
+                       :'no empty topics from the last crawl');
+    loadThanks();
+  }catch(e){ note('could not queue: '+e.message); }
+};
+$('#bThanksPreview').onclick=async()=>{
+  const url=($('#thanksBox').value.split(/\s+/).filter(Boolean)[0])||'';
+  if(!url){ note('paste a topic URL to preview, or press it with one queued'); return; }
+  try{
+    const d=await post('/api/thanks/preview',{url});
+    note(`preview ${d.url}`);
+    note(`  signed in: ${d.logged_in?d.username||'yes':'NO — session lapsed'}`);
+    note(`  reply form: ${d.form_found?d.fields.length+' field(s) → '+d.action:'none found'}`);
+    note(`  already replied: ${d.already_replied?'yes — would be skipped':'no'}`);
+    if(d.robots_note) note('  '+d.robots_note);
+    note(`  would post: ${d.would_post?'"'+d.message+'"':'no'}`);
+  }catch(e){ note('preview failed: '+e.message); }
+};
+$('#thanksDryRun').onchange=async()=>{
+  const on=$('#thanksDryRun').checked;
+  if(!on && !confirm('Turn dry run OFF?\n\nReplies will be posted to the board under your account.'))
+    { $('#thanksDryRun').checked=true; return; }
+  await post('/api/thanks/settings',{dry_run:on});
+  note(on?'dry run on — nothing will be posted':'dry run OFF — replies will be real');
+  loadThanks();
+};
+$('#bThanksStart').onclick=async()=>{
+  try{ const d=await post('/api/thanks/start',{});
+    note(d.dry_run?'started in dry run':'started — posting for real'); loadThanks(); }
+  catch(e){ note('could not start: '+e.message); }
+};
+$('#bThanksStop').onclick=async()=>{
+  await post('/api/thanks/stop',{}); note('thanks runner stopped'); loadThanks();
+};
+
+async function loadSince(){
+  try{
+    const d=await (await fetch('/api/settings/since')).json();
+    $('#sinceMonths').value=d.months;
+    $('#sinceNote').textContent=d.since?`(posts since ${d.since})`:'(0 = all)';
+  }catch(e){}
+}
+$('#sinceMonths').onchange=async()=>{
+  const months=Math.max(0,+$('#sinceMonths').value||0);
+  try{ await post('/api/settings/since',{months}); note(months?`only posts from the last ${months} months`:'no date limit'); loadSince(); }catch(e){ note('could not save: '+e.message); }
+};
 async function loadHosts(){
   try{
     const d=await (await fetch('/api/hosts')).json();
@@ -498,6 +732,20 @@ async function loadHosts(){
     });
   }catch(e){}
 }
+async function setHosts(keys){ await post('/api/hosts',{keys}); note('harvesting: '+keys.join(', ')); loadHosts(); }
+$('#bHostsAll').onclick=()=>setHosts($$('#hostList input[data-host]').map(x=>x.dataset.host));
+$('#bHostsNone').onclick=()=>{ const all=$$('#hostList input[data-host]').map(x=>x.dataset.host); if(all.length) setHosts(all.slice(0,1)); };
+$('#bWatchesClear').onclick=async()=>{
+  const w=await (await fetch('/api/watches')).json(); const ids=(w.watches||[]).map(x=>x.id);
+  if(!ids.length||!confirm(`Remove all ${ids.length} watch(es)?`)) return;
+  for(const id of ids) await fetch('/api/watches/'+id,{method:'DELETE'});
+  note(`${ids.length} watch(es) removed`); loadSide();
+};
+$('#bCrawlsClear').onclick=async()=>{
+  if(!confirm('Clear the Recent crawls list? (sent-file history is kept)')) return;
+  const d=await (await fetch('/api/crawls',{method:'DELETE'})).json();
+  note(`${d.cleared} crawl(s) cleared`); loadSide();
+};
 async function loadSide(){
   try{
     const w=await (await fetch('/api/watches')).json();
@@ -568,7 +816,7 @@ function note(m){
   box.appendChild(div); box.scrollTop=box.scrollHeight;
 }
 $('#bWatch').onclick=async()=>{
-  const url=$('#url').value.trim(); if(!url) return;
+  const url=$('#url').value.trim().split(/\s+/)[0]; if(!url) return;
   try{ const d=await post('/api/watches',{url}); note(`watching "${d.name}" — ${d.baselined} baselined`); loadSide(); }
   catch(e){ note('watch failed: '+e.message); }
 };
@@ -577,11 +825,20 @@ $('#url').addEventListener('keydown',e=>{ if(e.key==='Enter') $('#bCrawl').click
 new EventSource('/events').onmessage=e=>{
   const m=JSON.parse(e.data), p=m.payload||{};
   if(m.kind==='resolve_progress') showProg(p.done,p.total,p.title||'');
-  if(m.kind==='crawl') hideProg();
+  if(m.kind==='crawl_job'){
+    if(p.state==='running') showProg(0,0,`crawling ${p.index+1}/${(p.urls||[]).length}: ${p.url}`);
+    else showJobResult();
+  }
+  if(m.kind==='sent_release'){
+    note(p.error?`JD refused "${p.title}": ${p.error}`:`→ JD: ${p.title} (${p.count} link${p.count==1?'':'s'})`);
+    loadHistory();
+  }
 };
 
-loadHosts(); loadJd(); loadSide(); loadHistory(); loadTrace(); loadCookies();
+loadSince(); loadHosts(); loadJd(); loadSide(); loadHistory(); loadTrace(); loadCookies(); loadStealth();
+loadThanks();
 setInterval(loadTrace,1500);
 setInterval(loadJd,15000);
+setInterval(loadThanks,10000);
 </script></body></html>
 """

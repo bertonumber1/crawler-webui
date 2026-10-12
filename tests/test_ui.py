@@ -62,7 +62,17 @@ def test_every_endpoint_the_ui_calls_is_served(script):
     served = {r.path for r in app.routes if hasattr(r, "path")}
     called = set(re.findall(r"fetch\('(/[^'?]+)", script))
     called |= set(re.findall(r"post\('(/[^'?]+)", script))
-    missing = sorted(p for p in called if p not in served)
+
+    def is_served(path: str) -> bool:
+        if path in served:
+            return True
+        # A path built by concatenation -- fetch('/api/x/'+id) -- is captured
+        # up to the quote, so it is served when some route continues it with a
+        # path parameter. Matching the prefix only, so a typo is still caught.
+        return path.endswith("/") and any(
+            r.startswith(path) and r[len(path):].startswith("{") for r in served)
+
+    missing = sorted(p for p in called if not is_served(p))
     assert not missing, f"the page calls endpoints that do not exist: {missing}"
 
 

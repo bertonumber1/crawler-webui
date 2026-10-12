@@ -20,3 +20,9 @@ cookies*.txt
 data/
 logs/
 .env.docker
+
+# Backups of local config: .env copies carry credentials.
+.env.*
+!.env.example
+*.bak
+*.bak-*

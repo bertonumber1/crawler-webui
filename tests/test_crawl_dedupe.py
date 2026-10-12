@@ -94,3 +94,74 @@ def test_every_link_carries_a_canonical_identity(client):
     d = _crawl(c)
     keys = [l["file_key"] for l in d["items"][0]["links"]]
     assert keys == ["rapidgator:aaa111", "rapidgator:bbb222"]
+
+
+def test_send_each_queues_a_release_once(client, monkeypatch):
+    c, _ = client
+    from crawler import server as srv
+    from crawler import jdapi
+    monkeypatch.setattr(jdapi, "configured", lambda: False)
+    calls = []
+    monkeypatch.setattr(srv.crawljob, "write",
+                        lambda urls, name, **kw: calls.append((name, list(urls))) or "/tmp/x.crawljob")
+    d = _crawl(c, send_each=True)
+    assert d["sent"]["packages"] == 1 and d["sent"]["links"] == 2
+    assert calls[0][0] == "Release One"
+    # Sent now, so a second crawl sends nothing again.
+    d = _crawl(c, send_each=True)
+    assert d["sent"]["packages"] == 0 and len(calls) == 1
+
+
+def test_api_failure_falls_back_to_folderwatch(client, monkeypatch):
+    c, _ = client
+    from crawler import server as srv
+    from crawler import jdapi
+    monkeypatch.setattr(jdapi, "configured", lambda: True)
+    def boom(*a, **k):
+        raise RuntimeError("no JDownloader devices on this account")
+    monkeypatch.setattr(jdapi, "add", boom)
+    calls = []
+    monkeypatch.setattr(srv.crawljob, "write",
+                        lambda urls, name, **kw: calls.append(name) or "/tmp/x.crawljob")
+    d = _crawl(c, send_each=True)
+    assert d["sent"]["packages"] == 1 and d["sent"]["failed"] == 0
+    assert calls == ["Release One"]
+
+
+def test_send_each_sends_per_page_and_never_twice(client, monkeypatch):
+    """A multi-page crawl sends each page's releases as that page is read, and
+    the end-of-crawl pass does not send them again."""
+    c, hist = client
+    from crawler import server as srv
+    from crawler.models import Item
+    from crawler.providers import base
+
+    pages = {"https://site.test/t?p=1": RG1, "https://site.test/t?p=2": RG2}
+
+    class Paged:
+        name = "paged"
+
+        def _parse_html(self, body, url):
+            return [Item(id=url, name="Rel " + url[-1], url=url, kind="release",
+                         links=[{"url": pages[url], "host": "rapidgator.net"}], store="paged")]
+
+        def poll(self, url, limit=50):
+            return self._parse_html("", url)
+
+        def resolve(self, url):
+            return url
+
+        def check(self, url):
+            return []
+
+    base.register(Paged())
+    monkeypatch.setattr(srv.pagination, "walk",
+                        lambda url, get, max_pages=0: iter([(u, "<html></html>") for u in pages]))
+    sent = []
+    monkeypatch.setattr(srv, "_queue", lambda urls, name, subfolder="", auto_start=False:
+                        sent.append((name, tuple(urls))) or hist.record_sent(
+                            [{"url": u, "host": "rapidgator.net"} for u in urls],
+                            package=name, job_path="test", title=name))
+    out = _crawl(c, provider="paged", pages=0, send_each=True)
+    assert [n for n, _ in sent] == ["Rel 1", "Rel 2"], sent
+    assert out["sent"]["packages"] == 2

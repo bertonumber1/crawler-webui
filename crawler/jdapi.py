@@ -243,3 +243,173 @@ def remove_offline() -> dict:
                 keys.append(linkmod.canonical_download_key(u))
     trace.event("jdapi", "offline links removed", count=dropped)
     return {"ok": True, "removed": dropped, "keys": sorted(set(keys))}
+
+
+# ------------------------------------------------------------------ named files
+# MyJDownloader's addLinks takes a package name and a folder but no per-link
+# file name, and a site's upload names are often poor (Tape3SwanEandVibes.mp3).
+# So a named release is added PAUSED, each link is renamed once JD has
+# collected it, and only then is it moved to the download list. A worker does
+# the renaming so a crawl never waits on JD's collector. Pending work is kept
+# in a file beside the database: a restart resumes it rather than leaving a
+# package of upload names.
+
+import json as _json
+from urllib.parse import unquote as _unquote
+
+RENAME_TIMEOUT = 15 * 60
+_pending_lock = threading.Lock()
+_worker = None
+
+
+def _pending_path() -> str:
+    from . import db
+    return os.path.join(db.DATA_DIR, "jd_pending_names.json")
+
+
+def _load_pending() -> list[dict]:
+    try:
+        with open(_pending_path(), encoding="utf-8") as f:
+            rows = _json.load(f)
+        return rows if isinstance(rows, list) else []
+    except (OSError, ValueError):
+        return []
+
+
+def _save_pending(rows: list[dict]) -> None:
+    path = _pending_path()
+    tmp = path + ".tmp"
+    with open(tmp, "w", encoding="utf-8") as f:
+        _json.dump(rows, f, ensure_ascii=False, indent=1)
+    os.replace(tmp, path)
+
+
+def url_key(url: str) -> str:
+    """Compare URLs the way JD may echo them back: scheme, www, case and
+    percent-encoding are not differences."""
+    u = _unquote(_unquote(url or "")).strip().lower()
+    u = u.split("://", 1)[-1].removeprefix("www.")
+    return u.rstrip("/")
+
+
+def add_named(files: list[tuple[str, str]], package: str, folder: str = "",
+              auto_start: bool = False, source_url: str = "") -> dict:
+    """Add [(url, file name)] as one package, paused; the worker renames each
+    link to its file name and then starts it if auto_start."""
+    files = [(u, n) for u, n in files if u]
+    if not files:
+        raise ValueError("no links given")
+    job = {
+        "autostart": False,
+        "links": "\n".join(u for u, _ in files),
+        "packageName": package or "crawler-webui",
+        "overwritePackagizerRules": False,
+    }
+    if folder:
+        job["destinationFolder"] = folder
+    if source_url:
+        # Sent as the referrer of every link: some sites guard their files
+        # with a Referer check.
+        job["sourceUrl"] = source_url
+    res = _call(lambda d: d.linkgrabber.add_links([job]))
+    with _pending_lock:
+        rows = _load_pending()
+        rows.append({"package": package, "start": bool(auto_start),
+                     "names": {url_key(u): n for u, n in files},
+                     "since": time.time()})
+        _save_pending(rows)
+    trace.event("jdapi", "named links added", package=package, count=len(files),
+                job=(res or {}).get("id"), autostart=bool(auto_start))
+    _ensure_worker()
+    return {"ok": True, "job": (res or {}).get("id"), "count": len(files)}
+
+
+def rename_pass() -> dict:
+    """One pass over pending packages: rename what JD has collected, start
+    what is complete. Returns counts; never raises."""
+    with _pending_lock:
+        rows = _load_pending()
+    if not rows:
+        return {"pending": 0}
+    try:
+        lg = linkgrabber()
+    except Exception as e:
+        return {"pending": len(rows), "error": f"{type(e).__name__}: {e}"}
+    by_key = {}
+    for l in lg["links"]:
+        by_key.setdefault(url_key(l.get("url") or ""), []).append(l)
+    renamed = started = 0
+    keep = []
+    for row in rows:
+        names = row["names"]
+        found = {k: by_key.get(k, []) for k in names}
+        for k, links in found.items():
+            for l in links:
+                if l.get("name") != names[k]:
+                    try:
+                        _call(lambda d, i=l["uuid"], n=names[k]:
+                              d.linkgrabber.rename_link(i, n))
+                        renamed += 1
+                    except Exception as e:
+                        trace.event("jdapi", "rename failed", name=names[k][:80],
+                                    error=f"{type(e).__name__}: {e}"[:160])
+        complete = all(found.values())
+        expired = time.time() - row.get("since", 0) > RENAME_TIMEOUT
+        if complete or expired:
+            if expired and not complete:
+                missing = [names[k] for k, v in found.items() if not v]
+                trace.event("jdapi", "rename gave up waiting for links",
+                            package=row["package"], missing=len(missing),
+                            first=missing[0][:80])
+            if row.get("start"):
+                ids = [l["uuid"] for v in found.values() for l in v]
+                if ids:
+                    try:
+                        _call(lambda d, i=ids: d.linkgrabber.move_to_downloadlist(i, []))
+                        started += 1
+                    except Exception as e:
+                        trace.event("jdapi", "start failed", package=row["package"],
+                                    error=f"{type(e).__name__}: {e}"[:160])
+                        keep.append(row)
+                        continue
+            trace.event("jdapi", "package named", package=row["package"],
+                        files=sum(1 for v in found.values() if v),
+                        started=bool(row.get("start")))
+        else:
+            keep.append(row)
+    with _pending_lock:
+        # Rows added while this pass ran are kept too.
+        latest = _load_pending()
+        done = [r for r in rows if r not in keep]
+        _save_pending([r for r in latest if r not in done])
+    return {"pending": len(keep), "renamed": renamed, "started": started}
+
+
+def _worker_loop():
+    global _worker
+    idle = 0
+    while idle < 60:                  # ~5 minutes with nothing pending
+        try:
+            res = rename_pass()
+        except Exception as e:        # never let the worker die silently
+            trace.event("jdapi", "rename pass failed", error=f"{type(e).__name__}: {e}")
+            res = {"pending": 1}
+        idle = idle + 1 if not res.get("pending") else 0
+        time.sleep(5)
+    with _pending_lock:
+        _worker = None
+
+
+def _ensure_worker():
+    global _worker
+    with _pending_lock:
+        if _worker is not None and _worker.is_alive():
+            return
+        _worker = threading.Thread(target=_worker_loop, name="jd-renamer", daemon=True)
+        _worker.start()
+
+
+def pending_names() -> dict:
+    rows = _load_pending()
+    return {"packages": len(rows), "files": sum(len(r["names"]) for r in rows),
+            "worker": bool(_worker is not None and _worker.is_alive())}

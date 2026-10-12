@@ -36,3 +36,36 @@ def test_walk_stops_at_max_pages_and_does_not_revisit():
     seen = [u for u, _ in pagination.walk(
         "https://f.test/t/1", lambda u: (200, pages.get(u, ""), {}), max_pages=5)]
     assert seen == ["https://f.test/t/1", "https://f.test/t/2"]
+
+
+def test_forumotion_offset_pager():
+    # No rel=next; the number in /f31p20- is an offset, not a page.
+    from crawler.pagination import next_page
+    html = ('<a href="/f31p40-x">3</a><a href="/f31p20-x">2</a>'
+            '<a href="/f32p20-other">other board</a><a href="/f31p20-x" class="pag-img">Next</a>')
+    assert next_page(html, "https://x.foroactivo.com/f31-x") == "https://x.foroactivo.com/f31p20-x"
+    assert next_page(html, "https://x.foroactivo.com/f31p20-x") == "https://x.foroactivo.com/f31p40-x"
+    assert next_page(html, "https://x.foroactivo.com/f31p40-x") is None
+
+
+def test_zero_indexed_pager_follows_next_label_not_number():
+    # Drupal (flacattack.net): the button showing "2" is ?page=1.
+    html = ('<ul class="pager"><li class="pager-current">1</li>'
+            '<li class="pager-item"><a title="Go to page 2" href="/genre/hh?page=1">2</a></li>'
+            '<li class="pager-item"><a title="Go to page 3" href="/genre/hh?page=2">3</a></li>'
+            '<li class="pager-next"><a title="Go to next page" href="/genre/hh?page=1">next ›</a></li>'
+            '<li class="pager-last"><a title="Go to last page" href="/genre/hh?page=130">last »</a></li></ul>')
+    assert pagination.next_page(html, "https://f.test/genre/hh") == "https://f.test/genre/hh?page=1"
+    assert pagination.next_page(html.replace("?page=1\">next", "?page=2\">next"),
+                                "https://f.test/genre/hh?page=1") == "https://f.test/genre/hh?page=2"
+
+
+def test_last_link_is_not_mistaken_for_next():
+    html = '<ul><li class="pager-last"><a href="/g?page=130">last »</a></li></ul>'
+    assert pagination.next_page(html, "https://f.test/g?page=130") is None
+
+
+def test_walk_zero_means_all_pages():
+    pages = {f"https://f.test/p{i}": f'<a href="/p{i+1}">next ›</a>' for i in range(30)}
+    got = [u for u, _ in pagination.walk("https://f.test/p0", lambda u: (200, pages.get(u, ""), {}), max_pages=0)]
+    assert len(got) == 30

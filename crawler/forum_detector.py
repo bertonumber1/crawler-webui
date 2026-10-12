@@ -34,6 +34,35 @@ SIGNATURES: tuple[Signature, ...] = (
         ("XenForo asset", r'(?:/js/xf/|/styles/[^/]+/xenforo/)'),
         ("XenForo class", r'\b(?:p-body|block--messages|message-cell|structItem)\b'),
     )),
+    # MyBB. Verified against patched.to, which serves
+    #   <meta name="generator" content="mybb" />
+    # and the classic trow1/trow2 table furniture. Its URLs are the rewritten
+    # form (/Thread-slug, /Forum-slug) rather than showthread.php, so BOTH
+    # shapes are matched -- a board with pretty URLs off still hits the second.
+    Signature("MyBB", (
+        ("meta generator", r'<meta[^>]+name=["\']generator["\'][^>]+content=["\'][^"\']*mybb'),
+        ("MyBB asset", r'(?:/jscripts/|/showthread\.php|/forumdisplay\.php|href="[^"]*/(?:Thread|Forum)-)'),
+        ("MyBB class", r'\b(?:trow1|trow2|inline_row|forumdisplay_regular|post_body|postbit)\b'),
+    )),
+    # Forumotion (foroactivo, forumactif, ...): hosted boards whose default
+    # template borrows phpBB's class names, so on class evidence alone they
+    # read as phpBB. They are not: topics are /t123-slug, boards /f12-slug,
+    # and pages are offsets in the path (/f12p20-slug). Verified against
+    # dark-decade.foroactivo.com, which carries all three markers below.
+    Signature("Forumotion", (
+        ("Forumotion host", r'(?:illiweb\.com|forumotion\.|foroactivo\.|forumactif\.)'),
+        ("Forumotion script", r'\b_userdata\s*\['),
+        ("Forumotion URL", r'href=["\'](?:https?://[^/"\']+)?/[tf]\d+-'),
+    )),
+    # SMF (Simple Machines). Verified against makinamania.net (SMF 2.0.19):
+    # "Powered by SMF", smf_scripturl in the page script, and topic/board
+    # links as index.php?topic=N.S -- or index.php/topic,N.S.html on the
+    # cached guest copy of the same page.
+    Signature("SMF", (
+        ("SMF footer", r'powered by smf|simple machines'),
+        ("SMF script", r'smf_scripturl|smf_theme_url|smf_default_theme_url'),
+        ("SMF URL", r'index\.php(?:\?|/)(?:topic|board)[=,]\d+\.\d+'),
+    )),
     Signature("phpBB", (
         ("meta generator", r'<meta[^>]+name=["\']generator["\'][^>]+content=["\'][^"\']*phpbb'),
         ("phpBB asset", r'(?:/styles/[^/]+/theme/|/viewtopic\.php|/viewforum\.php)'),

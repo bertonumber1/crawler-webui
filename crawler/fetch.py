@@ -16,7 +16,7 @@ There is deliberately no mechanism here for defeating a bot challenge. If a
 host answers 403 to an honest client, that is the host declining, and the
 crawler reports it as such rather than working around it.
 """
-import re, time, threading, os
+import random, re, time, threading, os
 import urllib.robotparser as robotparser
 from urllib.parse import urlparse, urljoin
 import httpx
@@ -51,6 +51,82 @@ _load_env()
 
 UA = "crawler-webui/0.1 (personal article+release watcher; contact: local operator)"
 MIN_GAP = float(os.getenv("CRAWLER_MIN_GAP", "0"))  # optional minimum gap; 0 = no artificial delay
+
+# Browse-like hosts. On a members-only board every page read is a view logged
+# against the member's account, shown in "who is online" and the topic's view
+# count. For hosts listed in CW_STEALTH_HOSTS (suffix match, so
+# "foroactivo.com" covers every board on it) the crawler reads like a person:
+# a browser's User-Agent and Accept headers, one page at a time, and a
+# randomised pause between pages. Every other host keeps the honest identity
+# and normal pace. Unset = off.
+#   CW_STEALTH_HOSTS=foroactivo.com
+#   CW_STEALTH_GAP=90-150        seconds, uniform random in the range
+STEALTH_HOSTS = tuple(
+    h.strip().lower().removeprefix("www.")
+    for h in os.getenv("CW_STEALTH_HOSTS", "").split(",") if h.strip())
+# Which browser the stealth hosts see: Brave on Windows or on Linux. Brave
+# sends Chrome's UA string unchanged. Pick the one you really browse the site
+# from, or the account shows up on two machines. Chosen in the UI (Session
+# panel) and kept in the settings table; CW_STEALTH_OS sets the first default.
+STEALTH_UAS = {
+    "windows": "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 "
+               "(KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+    "linux": "Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/537.36 "
+             "(KHTML, like Gecko) Chrome/152.0.0.0 Safari/537.36",
+}
+_BROWSER_HEADERS = {
+    "Accept": "text/html,application/xhtml+xml,application/xml;q=0.9,"
+              "image/avif,image/webp,*/*;q=0.8",
+    "Accept-Language": "en-GB,en;q=0.9",
+}
+
+
+def _gap_range(raw: str) -> tuple[float, float]:
+    lo, _, hi = (raw or "90-150").partition("-")
+    try:
+        lo_f = float(lo)
+        hi_f = float(hi) if hi else lo_f
+    except ValueError:
+        return 90.0, 150.0
+    return min(lo_f, hi_f), max(lo_f, hi_f)
+
+
+STEALTH_GAP = _gap_range(os.getenv("CW_STEALTH_GAP", "90-150"))
+
+
+def is_stealth(url: str) -> bool:
+    host = urlparse(url or "").netloc.lower().split("@")[-1].split(":")[0]
+    host = host.removeprefix("www.")
+    return any(host == h or host.endswith("." + h) for h in STEALTH_HOSTS)
+
+
+def _default_os() -> str:
+    v = os.getenv("CW_STEALTH_OS", "linux").strip().lower()
+    return v if v in STEALTH_UAS else "linux"
+
+
+_stealth_os = _default_os()
+
+
+def stealth_os() -> str:
+    return _stealth_os
+
+
+def set_stealth_os(value: str) -> str:
+    global _stealth_os
+    value = (value or "").strip().lower()
+    if value not in STEALTH_UAS:
+        raise ValueError(f"unknown OS {value!r}; expected one of {sorted(STEALTH_UAS)}")
+    db.set_setting("stealth_os", value)
+    _stealth_os = value
+    return value
+
+
+def _headers_for(url: str, extra: dict | None = None) -> dict:
+    out = ({"User-Agent": STEALTH_UAS[_stealth_os], **_BROWSER_HEADERS}
+           if is_stealth(url) else {})
+    out.update(extra or {})
+    return out
 ROBOTS_TTL = 3600.0
 
 # Optional FlareSolverr fallback. It is only used when the normal HTTP client
@@ -73,6 +149,8 @@ _last_hit: dict[str, float] = {}
 _robots: dict[str, tuple[float, robotparser.RobotFileParser]] = {}
 db.init_cache()
 db.init_settings()
+if db.setting("stealth_os") in STEALTH_UAS:
+    _stealth_os = db.setting("stealth_os")
 
 
 def _build(proxy: str | None):
@@ -173,7 +251,7 @@ def robots_ok(url) -> tuple[bool, str]:
         rp = robotparser.RobotFileParser()
         rp.set_url(urljoin(base, "/robots.txt"))
         try:
-            r = _client.get(urljoin(base, "/robots.txt"))
+            r = _client.get(urljoin(base, "/robots.txt"), headers=_headers_for(url))
             if r.status_code == 200:
                 rp.parse(r.text.splitlines())
             else:
@@ -196,6 +274,9 @@ def _throttle(url):
     """
     base = _host(url)
     gap = max(0.0, MIN_GAP)
+    if is_stealth(url):
+        # Drawn per request: a fixed interval is itself a bot's signature.
+        gap = max(gap, random.uniform(*STEALTH_GAP))
     with _lock:
         hit = _robots.get(base)
     if hit:
@@ -205,13 +286,18 @@ def _throttle(url):
             declared = None
         if declared:
             gap = max(gap, float(declared))
+    # Reserve the next slot under the lock, then sleep outside it. Reading the
+    # last hit and writing it back after sleeping let the resolver's parallel
+    # workers all see the same last hit, sleep the same time and fire
+    # together -- six requests at once, however long the gap.
     with _lock:
-        last = _last_hit.get(base, 0.0)
-        wait = gap - (time.monotonic() - last)
+        now = time.monotonic()
+        last = _last_hit.get(base)
+        slot = now if last is None else max(now, last + gap)
+        _last_hit[base] = slot
+    wait = slot - time.monotonic()
     if wait > 0:
         time.sleep(wait)
-    with _lock:
-        _last_hit[base] = time.monotonic()
 
 
 def _looks_like_challenge(body: str, headers: dict) -> bool:
@@ -223,12 +309,17 @@ def _looks_like_challenge(body: str, headers: dict) -> bool:
         return False
     sample = body[:250000].lower()
     markers = (
-        "cf-chl-", "cf-turnstile", "challenge-platform",
+        "cf-chl-", "cf-turnstile",
         "just a moment...", "checking your browser",
         "ddos-guard", "enable javascript and cookies to continue",
-        "/cdn-cgi/challenge-platform/",
     )
-    return any(m in sample for m in markers)
+    if any(m in sample for m in markers):
+        return True
+    # Cloudflare also injects /cdn-cgi/challenge-platform/scripts/jsd/main.js
+    # into EVERY normal page of a site behind its bot management (makinamania:
+    # each 50-120 KB forum page). Only a small page carrying it is the
+    # challenge shell itself; a full page with it is just a page.
+    return "challenge-platform" in sample and len(body) < 30000
 
 
 def _flaresolverr_get(url: str) -> tuple[int, str, dict]:
@@ -282,7 +373,7 @@ def resolve_final_url(url: str) -> str:
         raise Blocked(f"robots.txt disallows {url}")
     _throttle(url)
     try:
-        r = _client.get(url, follow_redirects=True)
+        r = _client.get(url, follow_redirects=True, headers=_headers_for(url))
     except httpx.HTTPError as e:
         raise FetchError(f"{type(e).__name__}: {e}") from e
     if r.status_code >= 400:
@@ -305,7 +396,7 @@ def get(url, conditional=True) -> tuple[int, str, dict]:
 
     _throttle(url)
     try:
-        r = _client.get(url, headers=headers)
+        r = _client.get(url, headers=_headers_for(url, headers))
     except httpx.HTTPError as e:
         raise FetchError(f"{type(e).__name__}: {e}") from e
 
@@ -341,3 +432,47 @@ def get(url, conditional=True) -> tuple[int, str, dict]:
         raise FetchError(f"HTTP {r.status_code}")
     trace.event("fetch", "ok", url=url, status=r.status_code, bytes=len(r.text))
     return r.status_code, r.text, dict(r.headers)
+
+
+def post(url: str, data: dict, referer: str = "",
+         respect_robots: bool = True) -> int:
+    """Submit a form, through the same policy every read goes through.
+
+    The one writing request in the app. It is kept here rather than in the
+    caller so it inherits what the rest already enforces: the member's cookie
+    jar, the per-host gap, and the browser identity on a stealth host -- a
+    reply arriving with the crawler's own User-Agent, seconds after a page
+    read, would stand out far more than the reply itself.
+
+    A form post also carries Referer and Origin, because a browser does and
+    forum software checks: Forumotion rejects a reply that arrives without
+    them. No token is ever invented here; every field comes from the page.
+
+    robots.txt has no rule for submitting a form -- it governs what a crawler
+    may fetch -- but this app has never fetched a disallowed path, so the
+    caller decides, and the default is to honour it.
+    """
+    if respect_robots:
+        allowed, _ = robots_ok(url)
+        if not allowed:
+            raise Blocked(f"robots.txt disallows {url}")
+    origin = "{0.scheme}://{0.netloc}".format(urlparse(referer or url))
+    headers = _headers_for(url, {
+        "Content-Type": "application/x-www-form-urlencoded",
+        "Origin": origin,
+        "Referer": referer or url,
+    })
+    _throttle(url)
+    try:
+        r = _client.post(url, data=data, headers=headers, follow_redirects=True)
+    except httpx.HTTPError as e:
+        raise FetchError(f"{type(e).__name__}: {e}") from e
+    if r.status_code in (401, 403):
+        raise Blocked(f"host returned {r.status_code} to the form post")
+    if r.status_code == 429:
+        raise Blocked("host returned 429 (rate limited) — back off and retry later")
+    if r.status_code >= 400:
+        raise FetchError(f"HTTP {r.status_code}")
+    trace.event("fetch", "form posted", url=url, status=r.status_code,
+                fields=len(data))
+    return r.status_code

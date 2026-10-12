@@ -39,7 +39,7 @@ def _safe(name: str) -> str:
 
 
 def write(urls: list[str], name: str, package: str = "", subfolder: str = "",
-          auto_start: bool = False) -> str:
+          auto_start: bool = False, names: dict | None = None) -> str:
     """Write a JSON-format .crawljob and atomically place it in Folder Watch.
 
     JSON is used deliberately: it is JDownloader's multi-crawljob format and
@@ -106,9 +106,21 @@ def write(urls: list[str], name: str, package: str = "", subfolder: str = "",
         "autoConfirm": "TRUE",
     }
 
+    jobs = [job]
+    if names:
+        # One entry per link, so each can carry its own file name. Same
+        # package and folder, so JD still groups them as one release.
+        jobs = []
+        for u in clean:
+            one = dict(job, text=u)
+            fname = names.get(u)
+            if fname:
+                one["filename"] = fname
+            jobs.append(one)
+
     tmp = path + ".tmp"
     with open(tmp, "w", encoding="utf-8", newline="\n") as f:
-        json.dump([job], f, indent=2, ensure_ascii=False)
+        json.dump(jobs, f, indent=2, ensure_ascii=False)
         f.write("\n")
         f.flush()
         os.fsync(f.fileno())
